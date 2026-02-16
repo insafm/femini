@@ -13,7 +13,7 @@ Femini provides a production-ready, high-performance REST API for Google Gemini 
 - **Developer First**: Clean REST API with real-time SSE streaming and comprehensive curl examples.
 - **Privacy Focused**: All data and cookies are stored locally in your project root.
 
-## � Key Features
+## 🔑 Key Features
 
 ### 💎 Gemini Automation
 - **Unrestricted Access**: Bypasses official API quotas and costs entirely.
@@ -33,7 +33,7 @@ Femini provides a production-ready, high-performance REST API for Google Gemini 
 - **Project-Root Centric**: Zero-config path resolution ensures all data stays inside your project.
 - **Docker Ready**: Production-hardened containers with non-root security and health checks.
 
-## �📂 Project Structure
+## 📂 Project Structure
 
 - `femini-api/`: FastAPI server for RESTful access.
 - `femini-playwright/`: Core automation engine and queue manager.
