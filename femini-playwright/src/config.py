@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     headless: bool = True
     request_timeout: int = 180
     browser_context_timeout: int = 300
+    max_requests_per_context: int = 100
+    max_requests_per_page: int = 20
 
     # Logging
     log_level: str = "INFO"

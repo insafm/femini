@@ -888,6 +888,18 @@ class GeminiClient:
     async def process_request(self, request) -> Dict[str, Any]:
         """Process a request from the queue manager"""
         self.request_count += 1
+        # Check for page rotation
+        if self.request_count > 1 and self.request_count % self.settings.max_requests_per_page == 0:
+            logger.info("rotating_page_limit_reached", 
+                       request_count=self.request_count,
+                       limit=self.settings.max_requests_per_page)
+            try:
+                if self.page:
+                    await self.page.close()
+            except Exception as e:
+                logger.warning("error_closing_page_for_rotation", error=str(e))
+            self.page = None
+
 
         try:
             # Run setup for first request or if page is closed

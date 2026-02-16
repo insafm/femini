@@ -51,6 +51,7 @@ class QueueManager:
         # Client instances per credential (for persistent sessions)
         self.clients: Dict[str, Any] = {}  # credential_key -> GeminiClient
         self._client_lock = asyncio.Lock()
+        self.credential_usage: Dict[str, int] = {}  # Track requests per credential
 
         # Stats
         self.stats = {
@@ -266,12 +267,40 @@ class QueueManager:
 
     async def _process_request(self, context, credential, request: Request) -> Any:
         """Process a single request using persistent GeminiClient"""
-        # Get or create persistent client for this credential
+        # Increment usage count
+        current_usage = self.credential_usage.get(credential.key, 0) + 1
+        self.credential_usage[credential.key] = current_usage
+        
+        # Check for context recycling
+        settings = get_settings()
+        if current_usage > settings.max_requests_per_context:
+            logger.info("recycling_context_limit_reached", 
+                       credential_key=credential.key,
+                       usage=current_usage,
+                       limit=settings.max_requests_per_context)
+            
+            async with self._client_lock:
+                # Cleanup existing client if exists
+                if credential.key in self.clients:
+                    try:
+                        await self.clients[credential.key].cleanup()
+                        del self.clients[credential.key]
+                    except Exception as e:
+                        logger.warning("error_cleaning_client_for_recycle", error=str(e))
+                
+                # Recreate browser context
+                await self.browser_mgr.recreate_context(credential.key)
+                
+                # Reset usage counter
+                self.credential_usage[credential.key] = 0
+
+        # Get or create persistent client for this credential (will create new if recycled)
         client = await self._get_or_create_client(context, credential)
         
         # Process request without cleanup (client persists)
         result = await client.process_request(request)
         return result
+
 
     async def get_result(self, task_id: str) -> Optional[TaskResult]:
         """Get result for a task"""
