@@ -559,7 +559,14 @@ class GeminiClient:
                                     await self.load_new_chat()
                                     retry_old_count = await self.page.locator("message-content").count()
                                     await self.send_prompt(self.last_prompt, force_json, force_text)
-                                    return await self.get_response(old_count=retry_old_count, stable_check_interval=stable_check_interval, stable_cycles=stable_cycles, force_json=force_json, force_text=force_text)
+                                    return await self.get_response(
+                                        old_count=retry_old_count, 
+                                        stable_check_interval=stable_check_interval, 
+                                        stable_cycles=stable_cycles, 
+                                        force_json=force_json, 
+                                        force_text=force_text,
+                                        retry_count=retry_count + 1
+                                    )
 
                         logger.debug("response_received", length=len(cleaned_text))
                         return cleaned_text
@@ -577,14 +584,32 @@ class GeminiClient:
         # Clean the final text before returning
         cleaned_text = await self._clean_response_text(last_text if last_text else "")
         
-        if force_json or self.force_json:
+        if (force_json or self.force_json) and cleaned_text:
             try:
                 repaired = repair_json(cleaned_text)
                 return repaired
             except Exception as e:
-                logger.warning("json_repair_failed", error=str(e))
+                logger.warning("json_repair_failed_at_timeout", error=str(e))
             
-        logger.warning("response_timeout")
+        logger.warning("response_timeout", retry_count=retry_count)
+
+        # Retry mechanism for stability timeout
+        if self.last_prompt and retry_count < self.settings.max_retries:
+            logger.info("retrying_last_prompt_after_timeout", 
+                       attempt=retry_count + 1, 
+                       max_retries=self.settings.max_retries)
+            await self.load_new_chat()
+            retry_old_count = await self.page.locator("message-content").count()
+            await self.send_prompt(self.last_prompt, force_json, force_text)
+            return await self.get_response(
+                old_count=retry_old_count, 
+                stable_check_interval=stable_check_interval, 
+                stable_cycles=stable_cycles, 
+                force_json=force_json, 
+                force_text=force_text, 
+                retry_count=retry_count + 1
+            )
+
         return cleaned_text if cleaned_text else None
 
     async def get_image_response(self, retry_count: int = 0) -> Optional[str]:
@@ -629,7 +654,16 @@ class GeminiClient:
 
                 await asyncio.sleep(1)
 
-            logger.warning("no_new_image_generated")
+            logger.warning("no_new_image_generated", retry_count=retry_count)
+            
+            # Retry mechanism for missing image src
+            if self.last_prompt and retry_count < self.settings.max_retries:
+                logger.info("retrying_last_prompt_for_missing_image",
+                           attempt=retry_count + 1,
+                           max_retries=self.settings.max_retries)
+                await self.send_prompt(self.last_prompt)
+                return await self.get_image_response(retry_count + 1)
+
             return None
 
         except PlaywrightTimeoutError:
