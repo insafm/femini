@@ -60,6 +60,8 @@ class QueueManager:
             "active_workers": 0
         }
 
+        self._cleanup_task: Optional[asyncio.Task] = None
+
         logger.info("queue_manager_initialized")
 
     async def enqueue_request(self, request: Request) -> str:
@@ -95,6 +97,9 @@ class QueueManager:
             worker = asyncio.create_task(self._worker(f"worker-{i}"))
             self.workers.append(worker)
 
+        # Start background results cleanup (every 10 min, purge > 1 hour)
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
         self.stats["active_workers"] = num_workers
         logger.info("workers_started", active_workers=self.stats["active_workers"])
 
@@ -105,6 +110,10 @@ class QueueManager:
 
         # Wait for current tasks to complete
         await self.queue.join()
+
+        # Cancel cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
 
         # Cancel workers
         for worker in self.workers:
@@ -306,6 +315,19 @@ class QueueManager:
 
             if to_remove:
                 logger.info("cleared_old_tasks", count=len(to_remove))
+
+    async def _cleanup_loop(self):
+        """Background loop to periodically clear old tasks (completed and failed)"""
+        logger.info("cleanup_loop_started")
+        try:
+            while self.running:
+                await asyncio.sleep(600)  # Run every 10 minutes
+                # Automatically purges tasks older than 1 hour (3600s)
+                await self.clear_completed_tasks(max_age=3600.0)
+        except asyncio.CancelledError:
+            logger.info("cleanup_loop_cancelled")
+        except Exception as e:
+            logger.error("cleanup_loop_error", error=str(e))
 
     async def health_check(self) -> bool:
         """Check if queue manager is healthy"""
