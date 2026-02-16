@@ -139,15 +139,15 @@ GET /api/v1/health
 ### cURL
 ```bash
 # Submit request
-curl -X POST http://localhost:8000/api/v1/submit \
+curl -X POST http://localhost:12000/api/v1/submit \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Hello!","is_image":false,"force_text":true}'
 
 # Stream updates
-curl -N http://localhost:8000/api/v1/stream/{task_id}
+curl -N http://localhost:12000/api/v1/stream/{task_id}
 
 # Get result
-curl http://localhost:8000/api/v1/result/{task_id}
+curl http://localhost:12000/api/v1/result/{task_id}
 ```
 
 ### Python
@@ -157,7 +157,7 @@ import json
 
 # Submit request
 response = requests.post(
-    "http://localhost:8000/api/v1/submit",
+    "http://localhost:12000/api/v1/submit",
     json={
         "prompt": "What is the capital of France?",
         "is_image": False,
@@ -170,7 +170,7 @@ print(f"Task ID: {task_id}")
 
 # Stream updates (SSE)
 response = requests.get(
-    f"http://localhost:8000/api/v1/stream/{task_id}",
+    f"http://localhost:12000/api/v1/stream/{task_id}",
     stream=True
 )
 
@@ -187,7 +187,7 @@ for line in response.iter_lines():
 ### JavaScript/Browser
 ```javascript
 // Submit request
-const response = await fetch('http://localhost:8000/api/v1/submit', {
+const response = await fetch('http://localhost:12000/api/v1/submit', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
@@ -200,7 +200,7 @@ const response = await fetch('http://localhost:8000/api/v1/submit', {
 const {task_id, stream_url} = await response.json();
 
 // Stream updates
-const eventSource = new EventSource(`http://localhost:8000${stream_url}`);
+const eventSource = new EventSource(`http://localhost:12000${stream_url}`);
 
 eventSource.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -246,7 +246,7 @@ docker-compose up -d femini-api
 docker-compose logs -f femini-api
 
 # Check health
-curl http://localhost:8000/api/v1/health
+curl http://localhost:12000/api/v1/health
 ```
 
 ### Environment Variables
@@ -283,15 +283,15 @@ python -m src.api_server
 ### Testing
 ```bash
 # Test health
-curl http://localhost:8000/api/v1/health
+curl http://localhost:12000/api/v1/health
 
 # Test submission
-curl -X POST http://localhost:8000/api/v1/submit \
+curl -X POST http://localhost:12000/api/v1/submit \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Test","is_image":false}'
 
 # View API docs
-open http://localhost:8000/docs
+open http://localhost:12000/docs
 ```
 
 ## Database
@@ -314,12 +314,12 @@ SQLite database stores all API requests and responses:
 
 ### Health Check
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:12000/api/v1/health
 ```
 
 ### Statistics
 ```bash
-curl http://localhost:8000/api/v1/stats
+curl http://localhost:12000/api/v1/stats
 ```
 
 ### Logs
