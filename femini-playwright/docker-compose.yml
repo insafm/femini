@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  femini-playwright:
+    build: .
+    container_name: femini-playwright
+    env_file:
+      - .env
+    volumes:
+      - ./user_data:/app/user_data:rw
+      - ./cookies:/app/cookies:rw
+      - ./downloads:/app/downloads:rw
+      - ./logs:/app/logs:rw
+    ports:
+      - "${API_PORT:-8000}:8000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import asyncio; from src.config import settings; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Optional: Add security options
+    security_opt:
+      - no-new-privileges:true
+    # Optional: Read-only root filesystem except for volumes
+    # read_only: true
+    # tmpfs:
+    #   - /tmp:noexec,nosuid,size=100m
+
+  # Optional: Redis for distributed queue (if needed for scaling)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: femini-redis
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
+  #   command: redis-server --appendonly yes
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+# volumes:
+#   redis_data:

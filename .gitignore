@@ -1,0 +1,10 @@
+femini-playwright/=2.0.0
+data/
+debug_data/
+logs/
+screenshots/
+user_data/
+downloads/
+*.pyc
+.env
+*.db

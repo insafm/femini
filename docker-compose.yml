@@ -1,0 +1,50 @@
+services:
+  # Femini API Service - REST API with SSE streaming
+  femini-api:
+    build:
+      context: .
+      dockerfile: femini-api/Dockerfile
+    container_name: femini-api
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT:-12000}:12000"
+    volumes:
+      - ./data:/app/data:rw
+      - ./downloads:/app/downloads:rw
+      - ./logs:/app/logs:rw
+      - ./cookies:/app/cookies:rw
+      - ./user_data:/app/user_data:rw
+    user: "${UID:-1000}:${GID:-1000}"
+    restart: unless-stopped
+    ipc: host
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - femini-network
+
+networks:
+  femini-network:
+    driver: bridge
+
+volumes:
+  data:
+  downloads:
+  logs:
