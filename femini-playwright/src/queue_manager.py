@@ -36,6 +36,7 @@ class TaskResult:
     error: Optional[str] = None
     credential_key: Optional[str] = None
     processing_time: Optional[float] = None
+    completed_at: Optional[float] = None
 
 class QueueManager:
     """Global queue for all incoming requests with worker pool"""
@@ -199,7 +200,8 @@ class QueueManager:
                                         success=True,
                                         result=result,
                                         credential_key=credential.key,
-                                        processing_time=processing_time
+                                        processing_time=processing_time,
+                                        completed_at=asyncio.get_event_loop().time()
                                     )
                                     self.stats["total_processed"] += 1
                                     logger.info("request_completed",
@@ -214,7 +216,8 @@ class QueueManager:
                                         error=error_msg or "Unknown worker error",
                                         result=result,
                                         credential_key=credential.key,
-                                        processing_time=processing_time
+                                        processing_time=processing_time,
+                                        completed_at=asyncio.get_event_loop().time()
                                     )
                                     self.stats["total_failed"] += 1
                                     logger.error("request_failed_logic",
@@ -239,7 +242,8 @@ class QueueManager:
                             task_id=task_id,
                             success=False,
                             error=error_msg,
-                            processing_time=processing_time
+                            processing_time=processing_time,
+                            completed_at=asyncio.get_event_loop().time()
                         )
 
                     self.stats["total_failed"] += 1
@@ -363,7 +367,7 @@ class QueueManager:
         async with self._result_lock:
             to_remove = []
             for task_id, result in self.task_results.items():
-                if result.processing_time and (current_time - result.processing_time) > max_age:
+                if result.completed_at and (current_time - result.completed_at) > max_age:
                     to_remove.append(task_id)
 
             for task_id in to_remove:
