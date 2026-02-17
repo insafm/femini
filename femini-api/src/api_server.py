@@ -269,6 +269,7 @@ async def submit_request(request: SubmitRequest):
             return_image_data=request.return_image_data,
             chat_id=request.chat_id,
             account_id=request.account_id,
+            credential_mode=request.credential_mode,
             reference_image_name=request.reference_image_name,
             filename_suffix=request.filename_suffix,
             save_dir=request.save_dir,

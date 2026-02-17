@@ -20,6 +20,7 @@ class Request:
     reference_image_name: Optional[str] = None
     chat_id: Optional[str] = None
     account_id: Optional[str] = None
+    credential_mode: Optional[str] = None
     return_image_data: bool = False  # Return base64-encoded image data
     filename_suffix: str = ""
     save_dir: Optional[str] = None
@@ -153,7 +154,10 @@ class QueueManager:
 
                 try:
                     # Get available credential
-                    credential = await self.cred_mgr.get_available_credential()
+                    credential = await self.cred_mgr.get_available_credential(
+                        mode_override=request.credential_mode,
+                        specific_key=request.account_id
+                    )
                     if not credential:
                         # No credential available, re-queue
                         logger.warning("no_credential_available_requeuing",

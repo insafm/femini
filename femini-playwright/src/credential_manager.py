@@ -108,33 +108,93 @@ class CredentialManager:
             "credential_keys": [c.key for c in self.credentials]
         }
 
-    async def get_available_credential(self):
+    async def get_available_credential(self, mode_override: Optional[str] = None, specific_key: Optional[str] = None):
         """Get a credential that has available capacity"""
         async with self._lock:
-            # Find credentials with capacity (active_tasks < max_concurrent_per_credential)
             settings = get_settings()
-            available = [
-                cred for cred in self.credentials
-                if self.active_tasks[cred.key] < settings.max_concurrent_per_credential
-            ]
+            
+            # Helper function to check capacity
+            def has_capacity(cred):
+                return self.active_tasks[cred.key] < settings.max_concurrent_per_credential
+
+            # Strategy 1: Specific key requested
+            if specific_key:
+                credential = next((c for c in self.credentials if c.key == specific_key), None)
+                if not credential:
+                    logger.warning("specific_credential_not_found", key=specific_key)
+                    return None
+                
+                if has_capacity(credential):
+                    return credential
+                else:
+                    logger.debug("specific_credential_busy", key=specific_key)
+                    return None
+
+            # Strategy 2: Determine mode (override or configured)
+            mode = mode_override if mode_override else self.mode
+
+            # Filter credentials with capacity
+            available = [cred for cred in self.credentials if has_capacity(cred)]
 
             if not available:
                 return None
 
-            # Use the selection mode to choose from available credentials
-            if self.mode == "random":
+            # Use selection mode
+            if mode == "random":
                 return random.choice(available)
-            elif self.mode == "least_busy":
-                # Already filtered by capacity, pick least busy
+            elif mode == "least_busy":
                 return min(available, key=lambda c: self.active_tasks[c.key])
-            elif self.mode == "round_robin":
-                # Filter available credentials and do round-robin among them
+            elif mode == "round_robin":
                 available_keys = [c.key for c in available]
-                while True:
+                # Try to pick next in round robin order that is available
+                # We need a stable iteration based on global index, but skipping unavailable
+                # This is a bit tricky, let's just loop until we find one that is available
+                # starting from current index
+                
+                for _ in range(len(self.credentials)):
                     candidate = self.credentials[self._round_robin_index % len(self.credentials)]
                     self._round_robin_index += 1
                     if candidate.key in available_keys:
                         return candidate
+                
+                # Should not reach here if available is not empty, but fallback
+                return available[0]
+
             else:  # default
-                default_cred = self._default_select()
-                return default_cred if default_cred.key in [c.key for c in available] else None
+                # Logic for default mode: always try the default credential first
+                # But here we only have 'available' credentials.
+                # If default is in available, pick it.
+                default_index = settings.default_credential_index
+                try:
+                    default_cred = self.credentials[default_index]
+                    if default_cred.key in [c.key for c in available]:
+                        return default_cred
+                except IndexError:
+                    pass
+                
+                # If default is busy or invalid, we could:
+                # 1. Wait (return None) - strict default
+                # 2. Fallback to another (e.g. first available)
+                
+                # Current implementation in _default_select falls back to first.
+                # Let's keep strict for now? Or fallback?
+                # The original _default_select returned credentials[0] on error.
+                # If we want "strict default", we should return None if default is busy.
+                # If we want "prefer default but allow others", we return others.
+                
+                # Given 'default' usually implies a primary account, let's be strict:
+                # If you set mode=default, you want THAT account.
+                
+                # Re-checking _default_select: it returns credentials[0] if index invalid.
+                # So "default" means "The one at DEFAULT_CREDENTIAL_INDEX".
+                
+                target_cred = None
+                try:
+                   target_cred = self.credentials[default_index]
+                except IndexError:
+                   target_cred = self.credentials[0]
+                
+                if target_cred.key in [c.key for c in available]:
+                    return target_cred
+                
+                return None  # Default is busy

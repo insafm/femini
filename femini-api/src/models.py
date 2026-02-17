@@ -14,6 +14,7 @@ class SubmitRequest(BaseModel):
     return_image_data: bool = Field(False, description="Return base64-encoded image data")
     chat_id: Optional[str] = Field(None, description="Continue in existing chat")
     account_id: Optional[str] = Field(None, description="Account ID for chat")
+    credential_mode: Optional[str] = Field(None, description="Override credential selection mode")
     reference_image_name: Optional[str] = Field(None, description="Reference image from Google Drive")
     filename_suffix: str = Field("", description="Suffix for saved filenames")
     save_dir: Optional[str] = Field(None, description="Custom directory to save downloads")
