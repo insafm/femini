@@ -258,6 +258,18 @@ class QueueManager:
     async def _get_or_create_client(self, context, credential):
         """Get existing client or create new one for credential"""
         async with self._client_lock:
+            # Check if client exists and if its context is still valid (matches the fresh context)
+            if credential.key in self.clients:
+                client = self.clients[credential.key]
+                if client.context != context:
+                    logger.info("client_context_mismatch_recreating", credential_key=credential.key)
+                    # Context was pruned or recreated, need new client
+                    try:
+                        await client.cleanup()
+                    except Exception:
+                        pass
+                    del self.clients[credential.key]
+
             if credential.key not in self.clients:
                 from .gemini_client import GeminiClient
                 

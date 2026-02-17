@@ -16,11 +16,17 @@ class BrowserManager:
         self.browser: Optional[Browser] = None
         self.contexts: Dict[str, BrowserContext] = {}  # {credential_key: BrowserContext}
         self.semaphores: Dict[str, asyncio.Semaphore] = {}  # {credential_key: Semaphore}
+        
+        # Resource optimization
+        self.last_activity: Dict[str, float] = {}  # {credential_key: timestamp}
+        self._prune_task: Optional[asyncio.Task] = None
+        self.prune_timeout = 300  # 5 minutes
+        
         self._initialized = False
         self._shutdown_event = asyncio.Event()
 
     async def initialize(self):
-        """Initialize persistent browser contexts (one per credential)"""
+        """Initialize browser manager (lazy loading)"""
         if self._initialized:
             return
 
@@ -30,12 +36,13 @@ class BrowserManager:
         try:
             self.playwright = await async_playwright().start()
 
-            # Create persistent context per credential (replaces browser + context)
+            # Initialize semaphores (locks) but NOT contexts yet
             for cred in self.credentials:
-                await self._create_context(cred)
-                # Semaphore ensures only 1 concurrent request per credential
                 self.semaphores[cred.key] = asyncio.Semaphore(1)
 
+            # Start background pruning task
+            self._prune_task = asyncio.create_task(self._prune_loop())
+            
             self._initialized = True
             logger.info("browser_manager_initialized_successfully")
 
@@ -76,6 +83,8 @@ class BrowserManager:
         context.on("page", self._on_new_page)
 
         self.contexts[credential.key] = context
+        self.last_activity[credential.key] = asyncio.get_event_loop().time()
+        
         logger.info("persistent_context_created", 
                    credential_key=credential.key,
                    user_data_path=str(user_data_path))
@@ -89,7 +98,7 @@ class BrowserManager:
         """)
 
     async def get_context(self, credential_key: str) -> BrowserContext:
-        """Get context for specific credential with semaphore control"""
+        """Get context for specific credential (lazy loaded)"""
         if not self._initialized:
             raise RuntimeError("BrowserManager not initialized")
 
@@ -98,32 +107,54 @@ class BrowserManager:
 
         # Acquire semaphore (blocks if credential is busy)
         await self.semaphores[credential_key].acquire()
-
-        context = self.contexts.get(credential_key)
-        if not context:
-            raise RuntimeError(f"Context not found for credential: {credential_key}")
-
-        logger.debug("context_acquired", credential_key=credential_key)
-        return context
+        
+        try:
+            # Lazy load: Create context if it doesn't exist
+            if credential_key not in self.contexts:
+                logger.info("lazy_loading_context", credential_key=credential_key)
+                credential = next(c for c in self.credentials if c.key == credential_key)
+                await self._create_context(credential)
+            
+            context = self.contexts.get(credential_key)
+            if not context:
+                raise RuntimeError(f"Failed to create context for: {credential_key}")
+                
+            # Update activity timestamp
+            self.last_activity[credential_key] = asyncio.get_event_loop().time()
+            
+            logger.debug("context_acquired", credential_key=credential_key)
+            return context
+            
+        except Exception as e:
+            # Release semaphore if creation failed
+            self.semaphores[credential_key].release()
+            raise
 
     async def release_context(self, credential_key: str):
         """Release context semaphore"""
         if credential_key in self.semaphores:
+            # Update activity timestamp on release too
+            self.last_activity[credential_key] = asyncio.get_event_loop().time()
             self.semaphores[credential_key].release()
             logger.debug("context_released", credential_key=credential_key)
 
     async def recreate_context(self, credential_key: str):
         """Recreate context for a credential (useful for cleanup)"""
-        if credential_key not in self.contexts:
-            raise ValueError(f"Unknown credential key: {credential_key}")
+        if credential_key not in self.semaphores: # Check semaphores as contexts might be empty
+             raise ValueError(f"Unknown credential key: {credential_key}")
 
-        # Close existing context
-        old_context = self.contexts[credential_key]
-        await old_context.close()
+        # Close existing context if it exists
+        if credential_key in self.contexts:
+            old_context = self.contexts[credential_key]
+            try:
+                await old_context.close()
+            except Exception:
+                pass
+            del self.contexts[credential_key]
 
         # Find credential and recreate
         credential = next(c for c in self.credentials if c.key == credential_key)
-        new_context = await self._create_context(credential)
+        await self._create_context(credential)
 
         logger.info("context_recreated", credential_key=credential_key)
 
@@ -137,11 +168,49 @@ class BrowserManager:
             await self.release_context(credential_key)
             raise
 
+    async def _prune_loop(self):
+        """Background task to prune inactive contexts"""
+        logger.info("prune_loop_started", timeout=self.prune_timeout)
+        try:
+            while not self._shutdown_event.is_set():
+                await asyncio.sleep(60) # Check every minute
+                
+                now = asyncio.get_event_loop().time()
+                to_prune = []
+                
+                # Identify inactive contexts
+                for key, context in list(self.contexts.items()):
+                    last_active = self.last_activity.get(key, 0)
+                    if now - last_active > self.prune_timeout:
+                        # Only prune if semaphore is free (not currently in use)
+                        if self.semaphores[key]._value > 0:
+                            to_prune.append(key)
+                
+                # Prune them
+                for key in to_prune:
+                    logger.info("pruning_inactive_context", credential_key=key, inactive_seconds=int(now - self.last_activity[key]))
+                    context = self.contexts.pop(key, None)
+                    if context:
+                        await self._close_context_safe(key, context)
+                        
+        except asyncio.CancelledError:
+            logger.info("prune_loop_cancelled")
+        except Exception as e:
+            logger.error("prune_loop_error", error=str(e))
+
     async def cleanup(self):
         """Graceful cleanup of all resources"""
         logger.info("starting_browser_cleanup")
 
         self._shutdown_event.set()
+        
+        # Cancel prune task
+        if self._prune_task:
+            self._prune_task.cancel()
+            try:
+                await self._prune_task
+            except asyncio.CancelledError:
+                pass
 
         # Close all contexts
         close_tasks = []
