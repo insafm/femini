@@ -169,56 +169,59 @@ class QueueManager:
 
                     await self.cred_mgr.mark_busy(credential.key)
 
-                    # Get context (blocks if credential is busy)
-                    context = await self.browser_mgr.get_context(credential.key)
-
                     try:
-                        # Process request - this will be implemented in GeminiClient
-                        result = await self._process_request(context, credential, request)
+                        # Get context (blocks if credential is busy)
+                        context = await self.browser_mgr.get_context(credential.key)
 
-                        processing_time = asyncio.get_event_loop().time() - start_time
-                        
-                        # Check result-level success (Gemini logic level success)
-                        is_success = False
-                        error_msg = None
-                        if isinstance(result, dict):
-                            is_success = result.get("success", False)
-                            error_msg = result.get("error")
+                        try:
+                            # Process request - this will be implemented in GeminiClient
+                            result = await self._process_request(context, credential, request)
 
-                        # Store result
-                        async with self._result_lock:
-                            if is_success:
-                                self.task_results[task_id] = TaskResult(
-                                    task_id=task_id,
-                                    success=True,
-                                    result=result,
-                                    credential_key=credential.key,
-                                    processing_time=processing_time
-                                )
-                                self.stats["total_processed"] += 1
-                                logger.info("request_completed",
-                                           task_id=task_id,
-                                           worker_id=worker_id,
-                                           credential_key=credential.key,
-                                           processing_time=f"{processing_time:.2f}s")
-                            else:
-                                self.task_results[task_id] = TaskResult(
-                                    task_id=task_id,
-                                    success=False,
-                                    error=error_msg or "Unknown worker error",
-                                    result=result,
-                                    credential_key=credential.key,
-                                    processing_time=processing_time
-                                )
-                                self.stats["total_failed"] += 1
-                                logger.error("request_failed_logic",
-                                           task_id=task_id,
-                                           worker_id=worker_id,
-                                           error=error_msg,
-                                           processing_time=f"{processing_time:.2f}s")
+                            processing_time = asyncio.get_event_loop().time() - start_time
+                            
+                            # Check result-level success (Gemini logic level success)
+                            is_success = False
+                            error_msg = None
+                            if isinstance(result, dict):
+                                is_success = result.get("success", False)
+                                error_msg = result.get("error")
+
+                            # Store result
+                            async with self._result_lock:
+                                if is_success:
+                                    self.task_results[task_id] = TaskResult(
+                                        task_id=task_id,
+                                        success=True,
+                                        result=result,
+                                        credential_key=credential.key,
+                                        processing_time=processing_time
+                                    )
+                                    self.stats["total_processed"] += 1
+                                    logger.info("request_completed",
+                                            task_id=task_id,
+                                            worker_id=worker_id,
+                                            credential_key=credential.key,
+                                            processing_time=f"{processing_time:.2f}s")
+                                else:
+                                    self.task_results[task_id] = TaskResult(
+                                        task_id=task_id,
+                                        success=False,
+                                        error=error_msg or "Unknown worker error",
+                                        result=result,
+                                        credential_key=credential.key,
+                                        processing_time=processing_time
+                                    )
+                                    self.stats["total_failed"] += 1
+                                    logger.error("request_failed_logic",
+                                            task_id=task_id,
+                                            worker_id=worker_id,
+                                            error=error_msg,
+                                            processing_time=f"{processing_time:.2f}s")
+
+                        finally:
+                            await self.browser_mgr.release_context(credential.key)
 
                     finally:
-                        await self.browser_mgr.release_context(credential.key)
                         await self.cred_mgr.mark_free(credential.key)
 
                 except Exception as e:
