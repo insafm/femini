@@ -307,6 +307,9 @@ class QueueManager:
                 # Recreate browser context
                 await self.browser_mgr.recreate_context(credential.key)
                 
+                # Update local context reference
+                context = await self.browser_mgr.get_context(credential.key)
+                
                 # Reset usage counter
                 self.credential_usage[credential.key] = 0
 
