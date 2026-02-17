@@ -182,12 +182,14 @@ class GeminiClient:
         """Enter password in the Google login form"""
         try:
             password_input = self.page.locator("input[name='Passwd']").first
-            await password_input.wait_for(state="visible", timeout=10000)
+            # Increased timeout for Docker environment
+            await password_input.wait_for(state="visible", timeout=30000)
             await asyncio.sleep(3)
             await password_input.fill("")
             await password_input.fill(self.credential.password)
             logger.debug("password_entered")
         except Exception as e:
+            await self.dump_page_content("login_password_error")
             logger.error("error_entering_password", error=str(e), trace=traceback.format_exc())
             raise
 

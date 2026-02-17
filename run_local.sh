@@ -14,14 +14,10 @@ PROJECT_ROOT=$(pwd)
 # Load environment variables from root .env file
 if [ -f "$PROJECT_ROOT/.env" ]; then
     echo "Loading environment from .env file..."
-    # Use python-dotenv style loading - read line by line and export
-    while IFS= read -r line || [ -n "$line" ]; do
-        # Skip comments and empty lines
-        if [[ ! "$line" =~ ^# ]] && [[ -n "$line" ]]; then
-            # Export the line as-is
-            export "$line"
-        fi
-    done < "$PROJECT_ROOT/.env"
+    echo "Loading environment from .env file..."
+    set -a
+    source "$PROJECT_ROOT/.env"
+    set +a
 else
     echo "Warning: .env file not found at $PROJECT_ROOT/.env"
     exit 1
