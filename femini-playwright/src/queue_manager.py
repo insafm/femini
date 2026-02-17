@@ -153,18 +153,23 @@ class QueueManager:
                 start_time = asyncio.get_event_loop().time()
 
                 try:
-                    # Get available credential
-                    credential = await self.cred_mgr.get_available_credential(
-                        mode_override=request.credential_mode,
-                        specific_key=request.account_id
-                    )
+                    # Get available credential (loop until one is free)
+                    credential = None
+                    while self.running:
+                        credential = await self.cred_mgr.get_available_credential(
+                            mode_override=request.credential_mode,
+                            specific_key=request.account_id
+                        )
+                        if credential:
+                            break
+                        
+                        logger.info("waiting_for_credential",
+                                   task_id=task_id,
+                                   worker_id=worker_id)
+                        await self.cred_mgr.wait_for_available()
+                    
                     if not credential:
-                        # No credential available, re-queue
-                        logger.warning("no_credential_available_requeuing",
-                                     task_id=task_id,
-                                     worker_id=worker_id)
-                        await asyncio.sleep(1)  # Brief pause before re-queuing
-                        await self.queue.put((task_id, request))
+                        # Worker stopping
                         continue
 
                     await self.cred_mgr.mark_busy(credential.key)

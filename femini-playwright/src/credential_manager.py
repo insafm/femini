@@ -15,6 +15,7 @@ class CredentialManager:
         self.usage_count: Dict[str, int] = {cred.key: 0 for cred in credentials}
         self.active_tasks: Dict[str, int] = {cred.key: 0 for cred in credentials}
         self._lock = asyncio.Lock()
+        self._condition = asyncio.Condition(self._lock)
         self._round_robin_index = 0
 
         logger.info("credential_manager_initialized",
@@ -97,6 +98,7 @@ class CredentialManager:
             logger.debug("credential_marked_free",
                         credential_key=credential_key,
                         active_tasks=self.active_tasks[credential_key])
+            self._condition.notify_all()
 
     def get_stats(self) -> Dict:
         """Get credential usage statistics"""
@@ -198,3 +200,8 @@ class CredentialManager:
                     return target_cred
                 
                 return None  # Default is busy
+
+    async def wait_for_available(self):
+        """Wait until a credential might be available"""
+        async with self._condition:
+            await self._condition.wait()
