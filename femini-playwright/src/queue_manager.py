@@ -195,6 +195,23 @@ class QueueManager:
                                            worker_id=worker_id,
                                            timeout=settings.worker_task_timeout,
                                            processing_time=f"{processing_time:.2f}s")
+                                
+                                # Diagnostic screenshot and HTML dump
+                                try:
+                                    client = await self._get_or_create_client(context, credential)
+                                    await client.dump_page_content(prefix="worker_timeout")
+                                except Exception as dump_err:
+                                    logger.warning("failed_to_dump_on_timeout", error=str(dump_err))
+
+                                # Restart browser context for this credential to fix future requests
+                                try:
+                                    logger.info("restarting_browser_on_timeout", credential_key=credential.key)
+                                    await self.browser_mgr.recreate_context(credential.key)
+                                    # Reset usage counter since it's a fresh context
+                                    self.credential_usage[credential.key] = 0
+                                except Exception as restart_err:
+                                    logger.error("failed_to_restart_browser_on_timeout", error=str(restart_err))
+
                                 async with self._result_lock:
                                     self.task_results[task_id] = TaskResult(
                                         task_id=task_id,

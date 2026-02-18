@@ -1064,6 +1064,12 @@ class GeminiClient:
                                                missing_keys=missing,
                                                attempt=key_retry,
                                                max_retries=self.settings.max_retries)
+                                
+                                # Diagnostic screenshot and HTML dump
+                                try:
+                                    await self.dump_page_content(prefix="json_missing_keys")
+                                except Exception as dump_err:
+                                    logger.warning("failed_to_dump_on_json_missing", error=str(dump_err))
 
                                 if key_retry >= self.settings.max_retries:
                                     # Exhausted retries — return failure
