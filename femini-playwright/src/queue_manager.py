@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from typing import Dict, Any, Optional, Callable, Awaitable
+from typing import Dict, Any, Optional, Callable, Awaitable, List
 from dataclasses import dataclass
 from .config import get_settings
 from .credential_manager import CredentialManager
@@ -26,6 +26,7 @@ class Request:
     save_dir: Optional[str] = None
     download: bool = False
     metadata: Optional[Dict[str, Any]] = None
+    required_json_keys: Optional[List[str]] = None
 
 @dataclass
 class TaskResult:

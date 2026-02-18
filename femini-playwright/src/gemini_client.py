@@ -887,6 +887,10 @@ class GeminiClient:
             logger.error("error_removing_watermark", error=str(e), trace=traceback.format_exc())
             return None
 
+    def _validate_json_keys(self, parsed: dict, required_keys: List[str]) -> List[str]:
+        """Return list of top-level keys missing from parsed JSON dict."""
+        return [k for k in required_keys if k not in parsed]
+
     async def process_request(self, request) -> Dict[str, Any]:
         """Process a request from the queue manager"""
         self.request_count += 1
@@ -1045,6 +1049,79 @@ class GeminiClient:
                                     result_dict["text"] = repaired
                             except:
                                 result_dict["json"] = None
+
+                        # --- Key validation with retry ---
+                        required_keys = getattr(request, "required_json_keys", None)
+                        if required_keys and result_dict.get("json") is not None:
+                            key_retry = 0
+                            while key_retry < self.settings.max_retries:
+                                missing = self._validate_json_keys(result_dict["json"], required_keys)
+                                if not missing:
+                                    break  # All keys present — done
+
+                                key_retry += 1
+                                logger.warning("json_keys_missing_retrying",
+                                               missing_keys=missing,
+                                               attempt=key_retry,
+                                               max_retries=self.settings.max_retries)
+
+                                if key_retry >= self.settings.max_retries:
+                                    # Exhausted retries — return failure
+                                    return {
+                                        "type": "text",
+                                        "success": False,
+                                        "error": f"Required JSON keys missing after {key_retry} retries: {missing}",
+                                        "chat_id": chat_id,
+                                        "account_id": account_id
+                                    }
+
+                                # Retry: new chat + resend
+                                await self.load_new_chat()
+                                retry_old_count = await self.page.locator("message-content").count()
+                                await self.send_prompt(request.prompt,
+                                                       force_json=True,
+                                                       force_text=request.force_text)
+                                response_text = await self.get_response(
+                                    old_count=retry_old_count,
+                                    force_json=True,
+                                    force_text=request.force_text,
+                                    retry_count=key_retry
+                                )
+
+                                if not response_text:
+                                    return {
+                                        "type": "text",
+                                        "success": False,
+                                        "error": f"No response on key-validation retry {key_retry}",
+                                        "chat_id": chat_id,
+                                        "account_id": account_id
+                                    }
+
+                                # Re-parse
+                                result_dict["text"] = response_text
+                                try:
+                                    result_dict["json"] = json.loads(response_text)
+                                except:
+                                    try:
+                                        repaired = repair_json(response_text)
+                                        result_dict["json"] = json.loads(repaired)
+                                        result_dict["text"] = repaired
+                                    except:
+                                        result_dict["json"] = None
+                                        # JSON parse failed — treat as missing all keys
+                                        break
+
+                            # Final check after loop
+                            if result_dict.get("json") is not None:
+                                missing = self._validate_json_keys(result_dict["json"], required_keys)
+                                if missing:
+                                    return {
+                                        "type": "text",
+                                        "success": False,
+                                        "error": f"Required JSON keys missing after {key_retry} retries: {missing}",
+                                        "chat_id": chat_id,
+                                        "account_id": account_id
+                                    }
 
                     return result_dict
                 return {

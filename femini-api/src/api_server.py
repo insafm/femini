@@ -288,7 +288,8 @@ async def submit_request(request: SubmitRequest):
             reference_image_name=request.reference_image_name,
             filename_suffix=request.filename_suffix,
             save_dir=request.save_dir,
-            download=request.download
+            download=request.download,
+            required_json_keys=request.required_json_keys,
         )
         
         logger.info("SUBMITTING_TO_WORKER", 

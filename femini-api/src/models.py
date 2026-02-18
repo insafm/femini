@@ -19,6 +19,10 @@ class SubmitRequest(BaseModel):
     filename_suffix: str = Field("", description="Suffix for saved filenames")
     save_dir: Optional[str] = Field(None, description="Custom directory to save downloads")
     download: bool = Field(False, description="Whether to save the response to a file (image or text)")
+    required_json_keys: Optional[List[str]] = Field(
+        None,
+        description="When force_json=true, retry if these top-level keys are missing from the JSON response"
+    )
 
     model_config = {
         "json_schema_extra": {
