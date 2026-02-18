@@ -46,6 +46,21 @@ async def lifespan(app: FastAPI):
     # Initialize API database
     await api_db.initialize()
     
+    # Clean up stale tasks from previous run (they'll never complete now)
+    stale_statuses = ['processing', 'pending']
+    stale_count = 0
+    for status in stale_statuses:
+        stale = await api_db.list_requests(limit=10000, status=status)
+        for req in stale:
+            await api_db.update_request_status(
+                task_id=req['task_id'],
+                status='failed',
+                error='Server restarted — task was lost'
+            )
+            stale_count += 1
+    if stale_count:
+        logger.warning("startup_stale_tasks_cleaned", count=stale_count)
+    
     # Initialize femini-playwright worker
     femini_app = FeminiApp()
     await femini_app.initialize()

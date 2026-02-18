@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     max_timeout: int = 180
     timeout: int = 60
     max_retries: int = 5
+    worker_task_timeout: int = 180  # Hard timeout (seconds) for a single task in the worker
     
     # Image data settings
     return_image_data: bool = False  # Return base64-encoded image data in response
