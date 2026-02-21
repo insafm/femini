@@ -751,7 +751,7 @@ class GeminiClient:
             await asyncio.sleep(1)
 
             # Robust XPath from bananabot2.py
-            create_images_selector = "//toolbox-drawer-item//div[contains(text(), 'Create images')]/ancestor::button"
+            create_images_selector = "//toolbox-drawer-item//div[contains(text(), 'Create image')]/ancestor::button"
             create_images_btn = self.page.locator(create_images_selector).first
             
             try:
@@ -761,9 +761,16 @@ class GeminiClient:
                 # Wait for tool selection to register
                 await asyncio.sleep(1)
             except Exception as e:
+                # Diagnostic screenshot and HTML dump
+                try:
+                    await self.dump_page_content(prefix="failed_to_click_create_images")
+                except Exception as dump_err:
+                    logger.warning("failed_to_dump_on_failed_to_click_create_images", error=str(dump_err))
+                
                 logger.error("failed_to_click_create_images", error=str(e))
                 # Fallback: try clicking by text content if XPath fails
                 await self.page.locator("toolbox-drawer-item:has-text('Create images')").first.click()
+
 
     async def deselect_as_image(self):
         """Deselect image input mode"""
@@ -1140,5 +1147,11 @@ class GeminiClient:
 
         except Exception as e:
             self.error_count += 1
+            # Diagnostic screenshot and HTML dump
+            try:
+                await self.dump_page_content(prefix="request_processing_error")
+            except Exception as dump_err:
+                logger.warning("failed_to_dump_on_request_processing_error", error=str(dump_err))
+
             logger.error("request_processing_error", error=str(e), trace=traceback.format_exc())
             return {"success": False, "error": str(e)}
