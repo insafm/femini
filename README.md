@@ -7,7 +7,7 @@ Femini provides a production-ready, high-performance REST API that automates the
 
 ## 🌟 Why Femini?
 
-- **Unlimited Access**: No more API credits or quota limits. If you can type it in Gemini Studio, Femini can automate it.
+- **Unlimited Access**: No more API credits or quota limits. If you can type it in Gemini, Femini can automate it.
 - **High-Speed Automation**: Built on modern Playwright (async/await) for lightning-fast prompts and image generation.
 - **Multi-Account Scaling**: Support for multiple Google accounts with automatic load balancing.
 - **Developer First**: Clean REST API with real-time SSE streaming and comprehensive curl examples.
