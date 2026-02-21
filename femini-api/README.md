@@ -1,6 +1,6 @@
 # Femini API
 
-REST API server for Gemini AI automation with Server-Sent Events (SSE) streaming.
+REST API server that exposes a FastAPI interface to the Femini worker, which automates the Gemini web app (gemini.google.com) via Playwright browser automation. Femini does not use an official Google AI Studio API/SDK; it interacts with the Gemini web UI through an automated browser.
 
 ## Overview
 
@@ -225,8 +225,13 @@ API_PORT=8000
 # Logging
 LOG_LEVEL=INFO
 
-# Google Credentials (JSON array)
-CREDENTIALS=[{"email":"user@gmail.com","password":"pass"}]
+# Google credentials for the Playwright worker.
+# The Playwright engine expects GEMINI_CREDENTIALS as a JSON array string.
+# Example (single-line JSON string in .env):
+GEMINI_CREDENTIALS='[
+  {"email":"user@gmail.com","password":"pass","key":"account1"},
+  {"email":"user2@gmail.com","password":"pass2","key":"account2"}
+]'
 
 # Worker Settings
 CREDENTIAL_MODE=random
@@ -234,6 +239,10 @@ HEADLESS=true
 SAVE_RESPONSES=false # Set to false for strictly opt-in downloads
 REMOVE_WATERMARK=true
 ```
+
+Notes:
+- The Playwright engine uses the GEMINI_CREDENTIALS env var (see femini-playwright/src/config.py).
+- Do not commit `.env` containing secrets to source control.
 
 ## Docker Deployment
 

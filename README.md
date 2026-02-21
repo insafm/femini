@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > **Educational & Personal Use Disclaimer**: This project is designed as an educational tool for exploring browser automation. Please note that automating web interfaces may technically bypass standard usage patterns and could conflict with a service provider's Terms of Service. We recommend using this software responsibly and for personal learning only, as the author assumes no responsibility for any account-related consequences or legal issues.
 
-Femini provides a production-ready, high-performance REST API for Google Gemini AI Studio. It bypasses restrictive API quotas and costs by using intelligent browser automation, giving you a truly **free and unlimited** way to integrate state-of-the-art AI into your applications.
+Femini provides a production-ready, high-performance REST API that automates the Gemini web app (gemini.google.com) via Playwright-based browser automation. It does not use the official Google AI Studio API/SDK. Femini bypasses restrictive API quotas and costs by automating the web UI, giving you a truly **free and unlimited** way to integrate state-of-the-art AI into your applications.
 
 ## 🌟 Why Femini?
 
@@ -49,10 +49,26 @@ Femini provides a production-ready, high-performance REST API for Google Gemini 
 
 ### 2. Configuration
 Copy the template and add your credentials:
+
 ```bash
 cp .env.example .env
-# Edit .env and add your GEMINI_CREDENTIALS
 ```
+
+Edit `.env` and set your credentials. Femini automates the Gemini web app (gemini.google.com) using browser automation — you must provide one or more Google accounts that have access to Gemini.
+
+Example environment variable (single-line JSON string):
+
+```env
+# GEMINI_CREDENTIALS should be a JSON array string. Example:
+GEMINI_CREDENTIALS='[
+  {"email":"you@example.com","password":"P@ssw0rd","key":"account1"},
+  {"email":"you2@example.com","password":"P@ssw0rd2","key":"account2"}
+]'
+```
+
+Notes:
+- The env var name used by the Playwright engine is GEMINI_CREDENTIALS (see femini-playwright/src/config.py).
+- Keep credentials secure and do not commit `.env` to source control.
 
 ### 3. Run with Script (Local)
 ```bash

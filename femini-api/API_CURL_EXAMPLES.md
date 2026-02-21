@@ -2,6 +2,21 @@
 
 This document provides comprehensive curl examples for all Femini API endpoints.
 
+> Note: Femini automates the Gemini web app (gemini.google.com) via Playwright browser automation. It does not use an official Google AI Studio API/SDK. The Playwright worker requires one or more Google accounts with Gemini access provided via the GEMINI_CREDENTIALS environment variable.
+
+Example GEMINI_CREDENTIALS (.env single-line JSON string):
+```env
+GEMINI_CREDENTIALS='[
+  {"email":"user@gmail.com","password":"pass","key":"account1"},
+  {"email":"user2@gmail.com","password":"pass2","key":"account2"}
+]'
+```
+
+Use the API base URL (default):
+```
+http://localhost:12000
+```
+
 ## Base URL
 ```
 http://localhost:12000

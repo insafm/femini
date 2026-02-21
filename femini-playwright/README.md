@@ -1,6 +1,8 @@
 # Femini Playwright
 
-Production-ready async Gemini AI Studio automation with Playwright, featuring multiple Google credential support, concurrent processing, and Docker optimization.
+Production-ready async automation for the Gemini web app (gemini.google.com) using Playwright, featuring multiple Google credential support, concurrent processing, and Docker optimization.
+
+> Note: Femini automates the Gemini web UI via browser automation; it does not use an official Google AI Studio API/SDK.
 
 ## 🚀 Features
 
