@@ -78,6 +78,9 @@ class BrowserManager:
                 "--force-device-scale-factor=1",
             ]
         )
+        
+        # Set default timeout for all pages in this context
+        context.set_default_timeout(self.settings.timeout * 1000)
 
         # Set up context-level event handlers
         context.on("page", self._on_new_page)

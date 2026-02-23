@@ -27,6 +27,7 @@ class Request:
     download: bool = False
     metadata: Optional[Dict[str, Any]] = None
     required_json_keys: Optional[List[str]] = None
+    retry_count: int = 0
 
 @dataclass
 class TaskResult:
@@ -221,7 +222,23 @@ class QueueManager:
                                         credential_key=credential.key,
                                         completed_at=asyncio.get_event_loop().time()
                                     )
-                                self.stats["total_failed"] += 1
+                                
+                                # Task-level retry logic for timeouts
+                                if request.retry_count < settings.max_retries:
+                                    request.retry_count += 1
+                                    logger.warning("retrying_task_after_timeout",
+                                                 task_id=task_id,
+                                                 retry_count=request.retry_count,
+                                                 max_retries=settings.max_retries)
+                                    # Wait a bit before retrying to let things settle
+                                    await asyncio.sleep(5)
+                                    await self.enqueue_request(request)
+                                else:
+                                    self.stats["total_failed"] += 1
+                                    logger.error("max_task_retries_reached",
+                                                task_id=task_id,
+                                                retries=request.retry_count)
+
                                 # Skip the result-storing block below
                                 result = None
 
