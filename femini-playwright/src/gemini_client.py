@@ -682,6 +682,7 @@ class GeminiClient:
                 logger.info("retrying_last_prompt_for_missing_image",
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
+                await self.set_as_image(True, self.reference_starred_drive_image_name)
                 await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(retry_count + 1)
 
@@ -698,6 +699,7 @@ class GeminiClient:
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
                 # Don't load new chat for image retry - stay in same chat
+                await self.set_as_image(True, self.reference_starred_drive_image_name)
                 await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(retry_count + 1)
 
@@ -715,6 +717,7 @@ class GeminiClient:
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
                 # Don't load new chat for image retry - stay in same chat
+                await self.set_as_image(True, self.reference_starred_drive_image_name)
                 await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(retry_count + 1)
 
