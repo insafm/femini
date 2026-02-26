@@ -348,8 +348,12 @@ class GeminiClient:
             }
         """, text)
 
-    async def send_prompt(self, prompt_text: str, force_json: bool = False, force_text: bool = False):
-        """Send a prompt to Gemini"""
+    async def send_prompt(self, prompt_text: str, force_json: bool = False, force_text: bool = False) -> int:
+        """Send a prompt to Gemini.
+        
+        Returns the message-content count captured right before the click (old_count),
+        so callers can use it as an atomic baseline for get_response.
+        """
         logger.info("send_prompt_started", prompt=prompt_text[:50] + "...")
 
         await self.wait_for_completion()
@@ -384,38 +388,58 @@ class GeminiClient:
 
             await asyncio.sleep(0.5)
 
+            # Snapshot the current message count BEFORE clicking Send.
+            # This must happen as close as possible to the actual click to avoid
+            # a late-arriving previous response inflating the baseline.
+            pre_send_count = await self.page.locator("message-content").count()
+
             # Send prompt - strict bananabot selector with retry/verification
             send_selector = "//button[contains(@aria-label, 'Send')]"
-            
+            sent = False
+
             for attempt in range(3):
                 try:
                     send_button = self.page.locator(send_selector).first
                     if await send_button.is_visible(timeout=2000):
                         await send_button.click()
                         logger.debug("send_button_clicked", attempt=attempt)
-                        
-                        # Wait for send button to be hidden (indicates submission started)
+                        sent = True
+
+                        # Wait for send button to disappear (submission confirmed).
                         try:
                             await send_button.wait_for(state="hidden", timeout=3000)
                             logger.info("prompt_sent_verified")
-                            break
                         except PlaywrightTimeoutError:
+                            # The click very likely registered even if the button lingers
+                            # briefly.  Do NOT retry — that would double-submit.
                             logger.warning("send_button_still_visible_after_click", attempt=attempt)
+                        # Either way, one click is enough — stop the loop.
+                        break
                     else:
-                        # Maybe Enter is needed or it's already sending
+                        if sent:
+                            # Button disappeared after our previous click — we're done.
+                            break
+                        # Button was never visible; fall back to Enter.
                         logger.info("send_button_not_visible_pressing_enter")
                         await editor.press("Enter")
+                        sent = True
                         await asyncio.sleep(1)
                         if not await send_button.is_visible(timeout=1000):
                             break
                 except Exception as e:
                     logger.warning("error_during_send_attempt", attempt=attempt, error=str(e))
-                    await editor.press("Enter")
+                    if not sent:
+                        # Only press Enter if we haven't successfully sent yet
+                        await editor.press("Enter")
+                        sent = True
                     await asyncio.sleep(0.5)
+                    break
 
-            logger.info("prompt_sent")
+            logger.info("prompt_sent", pre_send_count=pre_send_count)
             await asyncio.sleep(0.5)
             await self.close_popups()
+
+            return pre_send_count
 
         except Exception as e:
             logger.error("error_sending_prompt", error=str(e), trace=traceback.format_exc())
@@ -501,11 +525,8 @@ class GeminiClient:
                 # Refresh/New Chat to clear state
                 await self.load_new_chat()
                 
-                # Capture new baseline for retry
-                retry_old_count = await self.page.locator("message-content").count()
-                
-                # Resend the prompt
-                await self.send_prompt(self.last_prompt, force_json, force_text)
+                # Resend the prompt — returns pre-send count atomically
+                retry_old_count = await self.send_prompt(self.last_prompt, force_json, force_text)
                 
                 # Recursive retry
                 return await self.get_response(
@@ -559,8 +580,7 @@ class GeminiClient:
                                 if self.last_prompt:
                                     logger.info("retrying_prompt_for_invalid_json")
                                     await self.load_new_chat()
-                                    retry_old_count = await self.page.locator("message-content").count()
-                                    await self.send_prompt(self.last_prompt, force_json, force_text)
+                                    retry_old_count = await self.send_prompt(self.last_prompt, force_json, force_text)
                                     return await self.get_response(
                                         old_count=retry_old_count, 
                                         stable_check_interval=stable_check_interval, 
@@ -601,8 +621,7 @@ class GeminiClient:
                        attempt=retry_count + 1, 
                        max_retries=self.settings.max_retries)
             await self.load_new_chat()
-            retry_old_count = await self.page.locator("message-content").count()
-            await self.send_prompt(self.last_prompt, force_json, force_text)
+            retry_old_count = await self.send_prompt(self.last_prompt, force_json, force_text)
             return await self.get_response(
                 old_count=retry_old_count, 
                 stable_check_interval=stable_check_interval, 
@@ -939,11 +958,8 @@ class GeminiClient:
             if request.is_image:
                 await self.set_as_image(True, request.reference_image_name)
 
-            # Get current message count before sending prompt to avoid race conditions
-            old_count = await self.page.locator("message-content").count()
-
-            # Send prompt
-            await self.send_prompt(request.prompt, force_json=request.force_json, force_text=request.force_text)
+            # Send prompt — returns the pre-send message count atomically
+            old_count = await self.send_prompt(request.prompt, force_json=request.force_json, force_text=request.force_text)
 
             # Get response
             if request.is_image:
@@ -1090,10 +1106,9 @@ class GeminiClient:
 
                                 # Retry: new chat + resend
                                 await self.load_new_chat()
-                                retry_old_count = await self.page.locator("message-content").count()
-                                await self.send_prompt(request.prompt,
-                                                       force_json=True,
-                                                       force_text=request.force_text)
+                                retry_old_count = await self.send_prompt(request.prompt,
+                                                                          force_json=True,
+                                                                          force_text=request.force_text)
                                 response_text = await self.get_response(
                                     old_count=retry_old_count,
                                     force_json=True,
