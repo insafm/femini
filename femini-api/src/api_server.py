@@ -103,10 +103,20 @@ async def sync_worker_results():
             all_to_check = pending + processing_db
             
             if iteration % 10 == 0:  # Log every 10 iterations
+                now_for_log = datetime.utcnow()
+                max_age_sec = 0
+                for r in processing_db:
+                    try:
+                        age = (now_for_log - datetime.fromisoformat(r['updated_at'])).total_seconds()
+                        if age > max_age_sec:
+                            max_age_sec = age
+                    except Exception:
+                        pass
                 logger.info("SYNC_ITERATION", 
                            iteration=iteration,
                            pending_count=len(pending),
-                           processing_count=len(processing_db))
+                           processing_count=len(processing_db),
+                           max_processing_age_sec=round(max_age_sec, 1))
             
             now = datetime.utcnow()
             for req in all_to_check:

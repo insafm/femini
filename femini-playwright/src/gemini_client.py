@@ -770,14 +770,14 @@ class GeminiClient:
             toolbox_drawer = self.page.locator("toolbox-drawer").first
             await toolbox_drawer.wait_for(state="visible")
             await toolbox_drawer.click()
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)  # Give drawer animation time to finish
 
             # Robust XPath from bananabot2.py
             create_images_selector = "//toolbox-drawer-item//div[contains(text(), 'Create image')]/ancestor::button"
             create_images_btn = self.page.locator(create_images_selector).first
             
             try:
-                await create_images_btn.wait_for(state="visible", timeout=5000)
+                await create_images_btn.wait_for(state="visible", timeout=15000)
                 await create_images_btn.click()
                 logger.debug("clicked_create_images")
                 # Wait for tool selection to register

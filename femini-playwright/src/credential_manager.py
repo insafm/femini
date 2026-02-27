@@ -90,6 +90,13 @@ class CredentialManager:
                         credential_key=credential_key,
                         active_tasks=self.active_tasks[credential_key])
 
+    def _mark_busy_locked(self, credential_key: str):
+        """Mark busy without acquiring lock (must already hold self._lock)"""
+        self.active_tasks[credential_key] += 1
+        logger.debug("credential_marked_busy",
+                    credential_key=credential_key,
+                    active_tasks=self.active_tasks[credential_key])
+
     async def mark_free(self, credential_key: str):
         """Mark credential as free (decrement active tasks)"""
         async with self._lock:
@@ -111,7 +118,7 @@ class CredentialManager:
         }
 
     async def get_available_credential(self, mode_override: Optional[str] = None, specific_key: Optional[str] = None):
-        """Get a credential that has available capacity"""
+        """Get a credential that has available capacity and atomically mark it busy."""
         async with self._lock:
             settings = get_settings()
             
@@ -127,6 +134,7 @@ class CredentialManager:
                     return None
                 
                 if has_capacity(credential):
+                    self._mark_busy_locked(credential.key)
                     return credential
                 else:
                     logger.debug("specific_credential_busy", key=specific_key)
@@ -142,64 +150,38 @@ class CredentialManager:
                 return None
 
             # Use selection mode
+            selected = None
             if mode == "random":
-                return random.choice(available)
+                selected = random.choice(available)
             elif mode == "least_busy":
-                return min(available, key=lambda c: self.active_tasks[c.key])
+                selected = min(available, key=lambda c: self.active_tasks[c.key])
             elif mode == "round_robin":
                 available_keys = [c.key for c in available]
-                # Try to pick next in round robin order that is available
-                # We need a stable iteration based on global index, but skipping unavailable
-                # This is a bit tricky, let's just loop until we find one that is available
-                # starting from current index
-                
                 for _ in range(len(self.credentials)):
                     candidate = self.credentials[self._round_robin_index % len(self.credentials)]
                     self._round_robin_index += 1
                     if candidate.key in available_keys:
-                        return candidate
-                
-                # Should not reach here if available is not empty, but fallback
-                return available[0]
-
+                        selected = candidate
+                        break
+                if selected is None:
+                    selected = available[0]  # Fallback
             else:  # default
-                # Logic for default mode: always try the default credential first
-                # But here we only have 'available' credentials.
-                # If default is in available, pick it.
                 default_index = settings.default_credential_index
                 try:
                     default_cred = self.credentials[default_index]
-                    if default_cred.key in [c.key for c in available]:
-                        return default_cred
                 except IndexError:
-                    pass
+                    default_cred = self.credentials[0]
                 
-                # If default is busy or invalid, we could:
-                # 1. Wait (return None) - strict default
-                # 2. Fallback to another (e.g. first available)
-                
-                # Current implementation in _default_select falls back to first.
-                # Let's keep strict for now? Or fallback?
-                # The original _default_select returned credentials[0] on error.
-                # If we want "strict default", we should return None if default is busy.
-                # If we want "prefer default but allow others", we return others.
-                
-                # Given 'default' usually implies a primary account, let's be strict:
-                # If you set mode=default, you want THAT account.
-                
-                # Re-checking _default_select: it returns credentials[0] if index invalid.
-                # So "default" means "The one at DEFAULT_CREDENTIAL_INDEX".
-                
-                target_cred = None
-                try:
-                   target_cred = self.credentials[default_index]
-                except IndexError:
-                   target_cred = self.credentials[0]
-                
-                if target_cred.key in [c.key for c in available]:
-                    return target_cred
-                
-                return None  # Default is busy
+                if default_cred.key in [c.key for c in available]:
+                    selected = default_cred
+                else:
+                    selected = None  # Default is busy — return None (strict)
+
+            if selected is not None:
+                # Atomically mark busy before releasing lock
+                self._mark_busy_locked(selected.key)
+            
+            return selected
 
     async def wait_for_available(self):
         """Wait until a credential might be available"""

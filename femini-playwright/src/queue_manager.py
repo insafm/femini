@@ -168,14 +168,16 @@ class QueueManager:
                         
                         logger.info("waiting_for_credential",
                                    task_id=task_id,
-                                   worker_id=worker_id)
+                                   worker_id=worker_id,
+                                   queue_size=self.queue.qsize(),
+                                   active_tasks=self.cred_mgr.active_tasks.copy())
                         await self.cred_mgr.wait_for_available()
                     
                     if not credential:
                         # Worker stopping
                         continue
 
-                    await self.cred_mgr.mark_busy(credential.key)
+                    # Note: credential is already marked busy atomically inside get_available_credential
 
                     try:
                         # Get context (blocks if credential is busy)
