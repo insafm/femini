@@ -101,6 +101,7 @@ class APIDatabase:
         chat_id: Optional[str] = None,
         account_id: Optional[str] = None,
         reference_image_name: Optional[str] = None,
+        credential_key: Optional[str] = None,
         filename_suffix: str = "",
         save_dir: Optional[str] = None,
         download: bool = False
@@ -112,13 +113,13 @@ class APIDatabase:
             INSERT INTO api_requests (
                 task_id, prompt, is_image, force_json, force_text, 
                 return_image_data, chat_id, account_id, 
-                reference_image_name, created_at, updated_at, status,
+                reference_image_name, credential_key, created_at, updated_at, status,
                 filename_suffix, save_dir, download
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             task_id, prompt, is_image, force_json, force_text,
             return_image_data, chat_id, account_id,
-            reference_image_name, now, now, 'pending',
+            reference_image_name, credential_key, now, now, 'pending',
             filename_suffix, save_dir, download
         ))
         

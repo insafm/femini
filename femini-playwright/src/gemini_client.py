@@ -640,11 +640,11 @@ class GeminiClient:
         try:
             await self.page.wait_for_selector(
                 "generated-image img",
-                timeout=self.settings.max_timeout * 1000
+                timeout=self.settings.image_generation_timeout * 1000
             )
 
             # Poll for new image src in the LAST message-content
-            for _ in range(180):
+            for _ in range(self.settings.image_generation_timeout):
                 # Restrict to the last message to ensure we get the latest generation
                 last_msg = self.page.locator("message-content").last
                 images = await last_msg.locator("generated-image img").all()
@@ -797,7 +797,7 @@ class GeminiClient:
     async def deselect_as_image(self):
         """Deselect image input mode"""
         try:
-            deselect_btn = self.page.locator("button[aria-label='Deselect Image']").first
+            deselect_btn = self.page.locator("button[aria-label='Deselect Create image']").first
             if await deselect_btn.is_visible():
                 await deselect_btn.click()
                 self.is_image = False
@@ -870,13 +870,16 @@ class GeminiClient:
             return None
 
         if save_dir is None:
-            save_dir = str(self.settings.download_path)
+            save_dir_path = self.settings.download_path
+        else:
+            save_dir_path = self.settings.resolve_path(save_dir)
 
-        os.makedirs(save_dir, exist_ok=True)
+        save_dir_str = str(save_dir_path)
+        os.makedirs(save_dir_str, exist_ok=True)
 
         try:
             timestamp = time.strftime('%Y%m%d_%H%M%S')
-            filename = os.path.join(save_dir, f"{filename_prefix}{timestamp}{filename_suffix}.txt")
+            filename = os.path.join(save_dir_str, f"{filename_prefix}{timestamp}{filename_suffix}.txt")
 
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(response_text)
@@ -960,6 +963,9 @@ class GeminiClient:
             # Handle image mode
             if request.is_image:
                 await self.set_as_image(True, request.reference_image_name)
+            elif self.is_last_response_image:
+                logger.info("deselecting_as_image")
+                await self.deselect_as_image()
 
             # Send prompt — returns the pre-send message count atomically
             old_count = await self.send_prompt(request.prompt, force_json=request.force_json, force_text=request.force_text)

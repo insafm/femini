@@ -20,6 +20,7 @@ class Request:
     reference_image_name: Optional[str] = None
     chat_id: Optional[str] = None
     account_id: Optional[str] = None
+    credential_key: Optional[str] = None
     credential_mode: Optional[str] = None
     return_image_data: bool = False  # Return base64-encoded image data
     filename_suffix: str = ""
@@ -158,10 +159,16 @@ class QueueManager:
                 try:
                     # Get available credential (loop until one is free)
                     credential = None
+                    # Verify if specific credential exists before waiting
+                    if request.credential_key:
+                        exists = any(c.key == request.credential_key for c in self.cred_mgr.credentials)
+                        if not exists:
+                            raise ValueError(f"Requested credential_key '{request.credential_key}' not found in system")
+
                     while self.running:
                         credential = await self.cred_mgr.get_available_credential(
                             mode_override=request.credential_mode,
-                            specific_key=request.account_id
+                            specific_key=request.credential_key
                         )
                         if credential:
                             break
