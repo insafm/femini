@@ -388,8 +388,9 @@ class QueueManager:
                 # Recreate browser context
                 await self.browser_mgr.recreate_context(credential.key)
                 
-                # Update local context reference
-                context = await self.browser_mgr.get_context(credential.key)
+                # Update local context reference directly (avoid get_context which
+                # would try to re-acquire the semaphore already held by the worker)
+                context = self.browser_mgr.contexts[credential.key]
                 
                 # Reset usage counter
                 self.credential_usage[credential.key] = 0
