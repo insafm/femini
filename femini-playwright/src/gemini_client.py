@@ -790,8 +790,8 @@ class GeminiClient:
                     logger.warning("failed_to_dump_on_failed_to_click_create_images", error=str(dump_err))
                 
                 logger.error("failed_to_click_create_images", error=str(e))
-                # Fallback: try clicking by text content if XPath fails
-                await self.page.locator("toolbox-drawer-item:has-text('Create images')").first.click()
+                # Fallback: click via aria-label matching the zero-state card button
+                await self.page.locator("button[aria-label*='Create image']").first.click()
 
 
     async def deselect_as_image(self):
