@@ -29,6 +29,7 @@ class Request:
     metadata: Optional[Dict[str, Any]] = None
     required_json_keys: Optional[List[str]] = None
     retry_count: int = 0
+    retry: bool = True
 
 @dataclass
 class TaskResult:
@@ -233,7 +234,7 @@ class QueueManager:
                                     )
                                 
                                 # Task-level retry logic for timeouts
-                                if request.retry_count < settings.max_retries:
+                                if request.retry and request.retry_count < settings.max_retries:
                                     request.retry_count += 1
                                     logger.warning("retrying_task_after_timeout",
                                                  task_id=task_id,
@@ -246,7 +247,8 @@ class QueueManager:
                                     self.stats["total_failed"] += 1
                                     logger.error("max_task_retries_reached",
                                                 task_id=task_id,
-                                                retries=request.retry_count)
+                                                retries=request.retry_count,
+                                                retry_enabled=request.retry)
 
                                 # Skip the result-storing block below
                                 result = None

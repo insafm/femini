@@ -302,6 +302,7 @@ async def submit_request(request: SubmitRequest):
             save_dir=request.save_dir,
             download=request.download,
             required_json_keys=request.required_json_keys,
+            retry=request.retry,
         )
         
         logger.info("SUBMITTING_TO_WORKER", 

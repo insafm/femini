@@ -37,6 +37,7 @@ class GeminiClient:
         self.force_json = False
         self.force_text = False
         self.enable_paste_with_js = True
+        self.retry = True
 
         # Stats
         self.request_count = 0
@@ -517,7 +518,7 @@ class GeminiClient:
             self.is_last_response_image = False
 
             # Retry mechanism
-            if self.last_prompt and retry_count < self.settings.max_retries:
+            if self.retry and self.last_prompt and retry_count < self.settings.max_retries:
                 logger.info("retrying_last_prompt", 
                            attempt=retry_count + 1, 
                            max_retries=self.settings.max_retries)
@@ -616,7 +617,7 @@ class GeminiClient:
         logger.warning("response_timeout", retry_count=retry_count)
 
         # Retry mechanism for stability timeout
-        if self.last_prompt and retry_count < self.settings.max_retries:
+        if self.retry and self.last_prompt and retry_count < self.settings.max_retries:
             logger.info("retrying_last_prompt_after_timeout", 
                        attempt=retry_count + 1, 
                        max_retries=self.settings.max_retries)
@@ -678,7 +679,7 @@ class GeminiClient:
             logger.warning("no_new_image_generated", retry_count=retry_count)
             
             # Retry mechanism for missing image src
-            if self.last_prompt and retry_count < self.settings.max_retries:
+            if self.retry and self.last_prompt and retry_count < self.settings.max_retries:
                 logger.info("retrying_last_prompt_for_missing_image",
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
@@ -694,7 +695,7 @@ class GeminiClient:
             self.is_last_response_image = False
 
             # Retry mechanism with configurable max retries (stay in same chat for images)
-            if self.last_prompt and retry_count < self.settings.max_retries:
+            if self.retry and self.last_prompt and retry_count < self.settings.max_retries:
                 logger.info("retrying_last_prompt_for_image_in_same_chat",
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
@@ -712,7 +713,7 @@ class GeminiClient:
             self.is_last_response_image = False
 
             # Retry on error with counter (stay in same chat for images)
-            if self.last_prompt and retry_count < self.settings.max_retries:
+            if self.retry and self.last_prompt and retry_count < self.settings.max_retries:
                 logger.info("retrying_last_prompt_after_error_in_same_chat",
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
@@ -940,6 +941,8 @@ class GeminiClient:
 
 
         try:
+            self.retry = request.retry
+            
             # Run setup for first request or if page is closed
             if self.request_count == 1 or not self.page or self.page.is_closed():
                 logger.info("running_setup_and_login", request_count=self.request_count)
@@ -1086,7 +1089,9 @@ class GeminiClient:
                         required_keys = getattr(request, "required_json_keys", None)
                         if required_keys and result_dict.get("json") is not None:
                             key_retry = 0
-                            while key_retry < self.settings.max_retries:
+                            max_keys_retries = self.settings.max_retries if request.retry else 0
+                            
+                            while key_retry < max_keys_retries:
                                 missing = self._validate_json_keys(result_dict["json"], required_keys)
                                 if not missing:
                                     break  # All keys present — done
@@ -1095,7 +1100,7 @@ class GeminiClient:
                                 logger.warning("json_keys_missing_retrying",
                                                missing_keys=missing,
                                                attempt=key_retry,
-                                               max_retries=self.settings.max_retries)
+                                               max_retries=max_keys_retries)
                                 
                                 # Diagnostic screenshot and HTML dump
                                 try:
@@ -1103,7 +1108,7 @@ class GeminiClient:
                                 except Exception as dump_err:
                                     logger.warning("failed_to_dump_on_json_missing", error=str(dump_err))
 
-                                if key_retry >= self.settings.max_retries:
+                                if key_retry >= max_keys_retries:
                                     # Exhausted retries — return failure
                                     return {
                                         "type": "text",

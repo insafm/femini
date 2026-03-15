@@ -24,6 +24,7 @@ class SubmitRequest(BaseModel):
         None,
         description="When force_json=true, retry if these top-level keys are missing from the JSON response"
     )
+    retry: bool = Field(True, description="Whether to retry task on failure or timeout")
 
     model_config = {
         "json_schema_extra": {
