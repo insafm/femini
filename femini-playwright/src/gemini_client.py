@@ -634,45 +634,81 @@ class GeminiClient:
 
         return cleaned_text if cleaned_text else None
 
-    async def get_image_response(self, retry_count: int = 0) -> Optional[str]:
-        """Wait for image generation to complete and return the URL with retry logic"""
+    ERROR_RESPONSES = [
+        "I'm having a hard time fulfilling your request.",
+        "Can I help you with something else instead",
+        "Sorry, something went wrong.",
+        "more images for you today",
+        "I can still find images from the web",
+        "encountered an error",
+        "something went wrong",
+    ]
+
+    async def get_image_response(self, retry_count: int = 0) -> Tuple[Optional[str], Optional[str]]:
+        """Wait for image generation to complete and return the URL and optional error message with retry logic"""
         logger.info("waiting_for_image", retry_count=retry_count)
         
         try:
-            await self.page.wait_for_selector(
-                "generated-image img",
-                timeout=self.settings.image_generation_timeout * 1000
-            )
-
-            # Poll for new image src in the LAST message-content
+            # Poll for new image src AND error text in the LAST message-content
             for _ in range(self.settings.image_generation_timeout):
                 # Restrict to the last message to ensure we get the latest generation
                 last_msg = self.page.locator("message-content").last
-                images = await last_msg.locator("generated-image img").all()
                 
-                new_srcs = []
-                for img in images:
+                # Make sure the message element exists before querying
+                if await last_msg.count() > 0:
+                    images = await last_msg.locator("generated-image img").all()
+                    
+                    new_srcs = []
+                    for img in images:
+                        try:
+                            src = await img.get_attribute("src")
+                            if src and src not in self.generated_images:
+                                new_srcs.append(src)
+                        except Exception:
+                            continue
+
+                    if new_srcs:
+                        # Add all new srcs to the list
+                        for src in new_srcs:
+                            self.generated_images.append(src)
+                            
+                        # Return the LAST new image in this set (often the most "latest")
+                        latest_src = new_srcs[-1]
+                        logger.info("new_image_found", src=latest_src[:50] + "...")
+
+                        await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        await asyncio.sleep(3)
+
+                        src_highres = re.sub(r'1024-rj', '16383', latest_src)
+                        return src_highres, None
+
+                # Check for AI refusal text to fail fast
+                if await last_msg.count() > 0:
                     try:
-                        src = await img.get_attribute("src")
-                        if src and src not in self.generated_images:
-                            new_srcs.append(src)
-                    except Exception:
-                        continue
-
-                if new_srcs:
-                    # Add all new srcs to the list
-                    for src in new_srcs:
-                        self.generated_images.append(src)
+                        text_content = await last_msg.text_content()
+                        print("text_content::" , text_content)
+                        logger.warning("text_content", error_text=text_content)
                         
-                    # Return the LAST new image in this set (often the most "latest")
-                    latest_src = new_srcs[-1]
-                    logger.info("new_image_found", src=latest_src[:50] + "...")
-
-                    await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await asyncio.sleep(3)
-
-                    src_highres = re.sub(r'1024-rj', '16383', latest_src)
-                    return src_highres
+                        if text_content:
+                            for error_text in self.ERROR_RESPONSES:
+                                if error_text in text_content:
+                                    logger.warning("ai_refusal_detected", error_text=error_text)
+                                    
+                                    # Respect retry limit for early failure
+                                    if self.retry and self.last_prompt and retry_count < self.settings.max_retries:
+                                        logger.info("retrying_last_prompt_after_ai_refusal",
+                                                   attempt=retry_count + 1,
+                                                   max_retries=self.settings.max_retries)
+                                        self.generation_in_progress = False
+                                        await asyncio.sleep(5)
+                                        await self.set_as_image(True, self.reference_starred_drive_image_name)
+                                        await self.send_prompt(self.last_prompt)
+                                        return await self.get_image_response(retry_count + 1)
+                                    
+                                    self.generation_in_progress = False
+                                    return None, f"AI Error: {error_text}"
+                    except Exception:
+                        pass
 
                 await asyncio.sleep(1)
 
@@ -683,11 +719,12 @@ class GeminiClient:
                 logger.info("retrying_last_prompt_for_missing_image",
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
+                await asyncio.sleep(5)
                 await self.set_as_image(True, self.reference_starred_drive_image_name)
                 await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(retry_count + 1)
 
-            return None
+            return None, "No new image generated"
 
         except PlaywrightTimeoutError:
             logger.warning("timeout_waiting_for_image", retry_count=retry_count)
@@ -700,12 +737,13 @@ class GeminiClient:
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
                 # Don't load new chat for image retry - stay in same chat
+                await asyncio.sleep(5)
                 await self.set_as_image(True, self.reference_starred_drive_image_name)
                 await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(retry_count + 1)
 
             logger.error("max_retries_exceeded_for_image", attempts=retry_count + 1, max_retries=self.settings.max_retries)
-            return None
+            return None, "Timeout waiting for image generation"
 
         except Exception as e:
             logger.error("error_getting_image_response", error=str(e), trace=traceback.format_exc())
@@ -718,12 +756,13 @@ class GeminiClient:
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
                 # Don't load new chat for image retry - stay in same chat
+                await asyncio.sleep(5)
                 await self.set_as_image(True, self.reference_starred_drive_image_name)
                 await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(retry_count + 1)
 
             logger.error("max_retries_exceeded_after_error", attempts=retry_count + 1)
-            return None
+            return None, f"Error getting image response: {str(e)}"
 
         finally:
             self.generation_in_progress = False
@@ -770,12 +809,29 @@ class GeminiClient:
             logger.debug("switching_to_image_mode")
             toolbox_drawer = self.page.locator("toolbox-drawer").first
             await toolbox_drawer.wait_for(state="visible")
-            await toolbox_drawer.click()
-            await asyncio.sleep(2)  # Give drawer animation time to finish
-
+            
             # Robust XPath from bananabot2.py
             create_images_selector = "//toolbox-drawer-item//div[contains(text(), 'Create image')]/ancestor::button"
             create_images_btn = self.page.locator(create_images_selector).first
+
+            # Retry loop for opening the drawer and clicking
+            drawer_opened = False
+            for attempt in range(3):
+                try:
+                    await toolbox_drawer.click()
+                    await asyncio.sleep(2)  # Give drawer animation time to finish
+                    
+                    if await create_images_btn.is_visible(timeout=5000):
+                        drawer_opened = True
+                        break
+                    else:
+                        logger.warning("create_images_btn_not_visible_retrying", attempt=attempt)
+                except Exception as e:
+                    logger.warning("error_clicking_toolbox_drawer", attempt=attempt, error=str(e))
+                    await asyncio.sleep(1)
+
+            if not drawer_opened:
+                logger.error("failed_to_open_toolbox_drawer_after_retries")
             
             try:
                 await create_images_btn.wait_for(state="visible", timeout=15000)
@@ -975,7 +1031,7 @@ class GeminiClient:
 
             # Get response
             if request.is_image:
-                result_url = await self.get_image_response()
+                result_url, error_msg = await self.get_image_response()
                 account_id, chat_id = await self.get_current_chat_id()
 
                 if result_url:
@@ -1041,7 +1097,7 @@ class GeminiClient:
                 return {
                     "type": "image",
                     "success": False,
-                    "error": "No image generated",
+                    "error": error_msg or "No image generated",
                     "chat_id": chat_id,
                     "account_id": account_id
                 }
