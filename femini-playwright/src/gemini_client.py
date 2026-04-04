@@ -105,6 +105,12 @@ class GeminiClient:
 
     async def initialize(self):
         """Initialize the client by reusing or creating a page"""
+        # Guard: if the context was somehow closed, fail with a clear error
+        try:
+            _ = self.context.pages  # accessing .pages raises if context is closed
+        except Exception as e:
+            raise RuntimeError(f"BrowserContext is closed and cannot be reused: {e}") from e
+
         # Reuse existing page from persistent context if available
         pages = self.context.pages
         if pages:
@@ -1040,22 +1046,34 @@ class GeminiClient:
         self.request_count += 1
         # Check for page rotation
         if self.request_count > 1 and self.request_count % self.settings.max_requests_per_page == 0:
-            logger.info("rotating_page_limit_reached", 
+            logger.info("rotating_page_limit_reached",
                        request_count=self.request_count,
                        limit=self.settings.max_requests_per_page)
+            # Navigate to about:blank instead of closing the page.
+            # In a launch_persistent_context, closing the *last* page also closes
+            # the entire BrowserContext, making subsequent new_page() calls fail.
+            # Navigating to blank frees the DOM/network resources without destroying the context.
             try:
-                if self.page:
-                    await self.page.close()
+                if self.page and not self.page.is_closed():
+                    await self.page.goto("about:blank", wait_until="commit")
+                    logger.debug("page_reset_to_blank_for_rotation")
             except Exception as e:
-                logger.warning("error_closing_page_for_rotation", error=str(e))
-            self.page = None
+                logger.warning("error_resetting_page_for_rotation", error=str(e))
+            # Keep self.page alive so initialize() reuses it via context.pages[0]
+            # (setup() will navigate it to Gemini immediately after)
 
 
         try:
             self.retry = request.retry
             
-            # Run setup for first request or if page is closed
-            if self.request_count == 1 or not self.page or self.page.is_closed():
+            # Run setup for first request, if page is closed, or if reset to about:blank (post-rotation)
+            needs_setup = (
+                self.request_count == 1
+                or not self.page
+                or self.page.is_closed()
+                or self.page.url in ("about:blank", "")
+            )
+            if needs_setup:
                 logger.info("running_setup_and_login", request_count=self.request_count)
                 await self.setup()
             else:
