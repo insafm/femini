@@ -687,9 +687,6 @@ class GeminiClient:
                 if await last_msg.count() > 0:
                     try:
                         text_content = await last_msg.text_content()
-                        print("text_content::" , text_content)
-                        logger.warning("text_content", error_text=text_content)
-                        
                         if text_content:
                             for error_text in self.ERROR_RESPONSES:
                                 if error_text in text_content:
@@ -874,19 +871,25 @@ class GeminiClient:
 
     async def download_image(self, url: str, save_dir: Optional[str] = None, filename_prefix: str = "IMG_",
                            filename_suffix: str = "", return_data: bool = False) -> Tuple[Optional[str], Optional[bytes]]:
-        """Download image from URL using Playwright's API context
-        
+        """Download image by clicking the Gemini download button, with blob URL fallback.
+
+        Strategy:
+        1. Find the download button (aria-label contains "download") on the last generated
+           image and trigger a Playwright download event by clicking it.
+        2. If that fails (button not found / download event times out), fall back to reading
+           the blob: URL via page.evaluate + fetch so we can capture the bytes.
+
         Args:
-            url: Image URL to download
+            url: Image URL (may be a blob: URL shown in the UI)
             save_dir: Directory to save the image
             filename_prefix: Prefix for the filename
             filename_suffix: Suffix for the filename
             return_data: Whether to return image bytes as well
-            
+
         Returns:
             Tuple of (file_path, image_bytes) if return_data=True, else (file_path, None)
         """
-        # Always resolve save_dir through Settings to ensure it stays in project root
+        # Always resolve save_dir through Settings
         if save_dir is None:
             save_dir_path = self.settings.download_path
         else:
@@ -895,30 +898,81 @@ class GeminiClient:
         save_dir_str = str(save_dir_path)
         os.makedirs(save_dir_str, exist_ok=True)
 
+        timestamp = time.strftime('%Y%m%d_%H%M%S')
+        filename = os.path.join(save_dir_str, f"{filename_prefix}{timestamp}{filename_suffix}.png")
+
+        # ── Strategy 1: click the download button and capture the download event ──
         try:
-            response = await self.context.request.get(url)
+            download_btn = self.page.locator("button[aria-label*='ownload']").last
+            if await download_btn.count() > 0:
+                logger.info("download_button_found", url=url[:80])
+                # Focus the button first (as required by Gemini's JS handler)
+                await download_btn.focus()
+                await asyncio.sleep(0.3)
 
-            if response.status == 200:
-                timestamp = time.strftime('%Y%m%d_%H%M%S')
-                filename = os.path.join(save_dir_str, f"{filename_prefix}{timestamp}{filename_suffix}.png")
-                
-                content = await response.body()
-                with open(filename, 'wb') as f:
-                    f.write(content)
+                async with self.page.expect_download(timeout=30_000) as dl_info:
+                    await download_btn.click()
 
-                logger.info("image_downloaded", filename=filename, size=len(content))
+                download = await dl_info.value
+                await download.save_as(filename)
+                content = open(filename, 'rb').read() if return_data else None
+                logger.info("image_downloaded_via_button", filename=filename, size=os.path.getsize(filename))
 
                 if return_data:
                     return filename, content
                 return filename, None
             else:
-                logger.warning("image_download_failed", status=response.status, url=url[:80])
-                return None, None
-
+                logger.warning("download_button_not_found", url=url[:80])
         except Exception as e:
-            logger.error("error_downloading_image", error=str(e), error_type=type(e).__name__,
-                        url=url[:80], trace=traceback.format_exc())
-            return None, None
+            logger.warning("download_button_failed", error=str(e), error_type=type(e).__name__, url=url[:80])
+
+        # ── Strategy 2: blob URL via page.evaluate / fetch ──
+        try:
+            if url.startswith("blob:"):
+                logger.info("fetching_blob_url_via_evaluate", url=url[:80])
+                b64: Optional[str] = await self.page.evaluate("""async (blobUrl) => {
+                    try {
+                        const resp = await fetch(blobUrl);
+                        const buf = await resp.arrayBuffer();
+                        const bytes = new Uint8Array(buf);
+                        let binary = '';
+                        for (let i = 0; i < bytes.byteLength; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        return btoa(binary);
+                    } catch (e) {
+                        return null;
+                    }
+                }""", url)
+
+                if b64:
+                    content = base64.b64decode(b64)
+                    with open(filename, 'wb') as f:
+                        f.write(content)
+                    logger.info("image_downloaded_via_blob_eval", filename=filename, size=len(content))
+                    if return_data:
+                        return filename, content
+                    return filename, None
+                else:
+                    logger.warning("blob_eval_returned_null", url=url[:80])
+            else:
+                # Regular HTTP URL – use the API context
+                response = await self.context.request.get(url)
+                if response.status == 200:
+                    content = await response.body()
+                    with open(filename, 'wb') as f:
+                        f.write(content)
+                    logger.info("image_downloaded_via_api_context", filename=filename, size=len(content))
+                    if return_data:
+                        return filename, content
+                    return filename, None
+                else:
+                    logger.warning("image_download_failed", status=response.status, url=url[:80])
+        except Exception as e:
+            logger.error("error_downloading_image_fallback", error=str(e), error_type=type(e).__name__,
+                         url=url[:80], trace=traceback.format_exc())
+
+        return None, None
 
     async def download_response(self, response_text: str, save_dir: Optional[str] = None,
                               filename_prefix: str = "RESP_", filename_suffix: str = "") -> Optional[str]:
