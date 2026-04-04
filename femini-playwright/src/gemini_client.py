@@ -556,7 +556,8 @@ class GeminiClient:
             
             if count > 0:
                 last_message = message_elements.nth(count - 1)
-                current_text = (await last_message.text_content() or "").strip()
+                # Use evaluate to get innerText to preserve newlines from <p> and <br> tags
+                current_text = (await last_message.evaluate("el => el.innerText") or "").strip()
             
             if current_text:
                 if current_text == last_text:
