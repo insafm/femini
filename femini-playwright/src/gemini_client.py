@@ -642,13 +642,12 @@ class GeminiClient:
         return cleaned_text if cleaned_text else None
 
     ERROR_RESPONSES = [
+        "error",
         "I'm having a hard time fulfilling your request.",
         "Can I help you with something else instead",
-        "Sorry, something went wrong.",
+        "something went wrong.",
         "more images for you today",
         "I can still find images from the web",
-        "encountered an error",
-        "something went wrong",
     ]
 
     async def get_image_response(self, retry_count: int = 0) -> Tuple[Optional[str], Optional[str]]:
