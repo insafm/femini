@@ -32,7 +32,7 @@ export DATABASE_PATH=$PROJECT_ROOT/data/femini_api.db
 export HEADLESS=False
 
 # Add to PYTHONPATH for local development
-export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT/femini-playwright:$PROJECT_ROOT/femini-api
+export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT/femini-api
 
 # Create necessary directories
 mkdir -p data
