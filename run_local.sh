@@ -29,7 +29,7 @@ export COOKIES_BASE_DIR=$PROJECT_ROOT/cookies
 export DOWNLOAD_DIR=$PROJECT_ROOT/downloads
 export LOG_DIR=$PROJECT_ROOT/logs
 export DATABASE_PATH=$PROJECT_ROOT/data/femini_api.db
-export HEADLESS=False
+# export HEADLESS=False
 
 # Add to PYTHONPATH for local development
 export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT/femini-api
