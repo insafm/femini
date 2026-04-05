@@ -643,9 +643,9 @@ class GeminiClient:
 
     ERROR_RESPONSES = [
         "error",
-        "I'm having a hard time fulfilling your request.",
+        "having a hard time fulfilling your request",
         "Can I help you with something else instead",
-        "something went wrong.",
+        "something went wrong",
         "more images for you today",
         "I can still find images from the web",
     ]
