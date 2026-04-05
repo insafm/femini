@@ -3,6 +3,7 @@ import uuid
 from typing import Dict, Any, Optional, Callable, Awaitable, List
 from dataclasses import dataclass
 from .config import get_settings
+from .utils import clean_browser_cache
 from .credential_manager import CredentialManager
 from .browser_manager import BrowserManager
 import structlog
@@ -456,6 +457,10 @@ class QueueManager:
                 await asyncio.sleep(600)  # Run every 10 minutes
                 # Automatically purges tasks older than 1 hour (3600s)
                 await self.clear_completed_tasks(max_age=3600.0)
+                
+                # Perform periodic browser cache cleanup
+                settings = get_settings()
+                await clean_browser_cache(settings.user_data_base_path)
         except asyncio.CancelledError:
             logger.info("cleanup_loop_cancelled")
         except Exception as e:

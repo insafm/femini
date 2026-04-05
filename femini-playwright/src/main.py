@@ -7,7 +7,7 @@ import asyncio
 import signal
 import sys
 from typing import Optional
-from .utils import setup_logging, get_logger
+from .utils import setup_logging, get_logger, clean_browser_cache
 from .browser_manager import BrowserManager
 from .credential_manager import CredentialManager
 from .queue_manager import QueueManager, Request
@@ -30,6 +30,9 @@ class FeminiApp:
         logger.info("initializing_femini_app",
                    credentials=len(settings.credentials),
                    mode=settings.credential_mode)
+                   
+        # Clean cache prior to bringing browsers up
+        await clean_browser_cache(settings.user_data_base_path)
 
         # Initialize credential manager
         self.cred_mgr = CredentialManager(settings.credentials, settings.credential_mode)

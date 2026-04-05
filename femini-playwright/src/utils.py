@@ -1,9 +1,40 @@
 import os
 import sys
+import shutil
+import asyncio
 import logging
 import structlog
 from pathlib import Path
 from .config import get_settings
+
+async def clean_browser_cache(user_data_path: Path):
+    """Clean browser cache directories inside the given user data path without blocking the event loop"""
+    logger.info("cleaning_browser_cache", target_path=str(user_data_path))
+    
+    def _delete_caches():
+        deleted_count = 0
+        cache_suffixes = ["Cache", "Code Cache", "GPUCache", "ShaderCache"]
+        
+        if not user_data_path.exists():
+            return 0
+            
+        for root, dirs, files in os.walk(user_data_path):
+            for d in list(dirs):  # Use list to avoid issues if modifying while walking
+                if any(c in d for c in cache_suffixes) or d.endswith("Cache"):
+                    dir_path = Path(root) / d
+                    try:
+                        shutil.rmtree(dir_path, ignore_errors=True)
+                        deleted_count += 1
+                    except Exception:
+                        pass
+        return deleted_count
+
+    try:
+        deleted_count = await asyncio.to_thread(_delete_caches)
+        if deleted_count > 0:
+            logger.info("browser_cache_cleaned", deleted_directories=deleted_count)
+    except Exception as e:
+        logger.error("error_cleaning_browser_cache", error=str(e))
 
 def setup_logging():
     """Setup structured logging with file and console output"""
