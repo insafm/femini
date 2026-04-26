@@ -337,24 +337,26 @@ class GeminiClient:
             await self.enter_password()
             await self.click_next_button()
 
-            # Handle potential recovery options screen
-            for _ in range(10):  # wait up to 10s for navigation after password
-                if "web/recoveryoptions" in self.page.url:
-                    logger.info("recovery_options_page_detected")
-                    try:
-                        cancel_button = self.page.locator("button:has-text('Cancel'), button[aria-label='Cancel']").first
-                        if await cancel_button.is_visible(timeout=5000):
-                            await cancel_button.click()
-                            logger.debug("clicked_cancel_on_recovery_options")
-                            await asyncio.sleep(2)
-                    except Exception as e:
-                        logger.warning("error_cancelling_recovery_options", error=str(e))
-                    break
-                
-                # If we made it to dashboard, stop waiting
+            # Handle potential recovery options screen with multiple prompts
+            for _ in range(15):  # poll up to 15 iterations (waiting for next screens)
+                # If we made it to dashboard, stop waiting entirely
                 if "gemini.google.com/app" in self.page.url or "gemini.google.com/prompt" in self.page.url:
                     break
-                    
+
+                if "web/recoveryoptions" in self.page.url or "gds.google.com" in self.page.url:
+                    logger.info("recovery_options_page_detected", url=self.page.url)
+                    try:
+                        # Look for visible cancel or skip button with a short timeout to poll quickly
+                        cancel_selector = "button[aria-label='Cancel']:visible, button:has-text('Cancel'):visible, button[aria-label='Skip']:visible, button:has-text('Skip'):visible"
+                        cancel_locator = self.page.locator(cancel_selector).first
+                        
+                        if await cancel_locator.is_visible(timeout=2000):
+                            await cancel_locator.click()
+                            logger.debug("clicked_cancel_on_recovery_options")
+                            await asyncio.sleep(1) # Extra brief wait after click
+                    except Exception as e:
+                        logger.warning("error_cancelling_recovery_options", error=str(e))
+                
                 await asyncio.sleep(1)
 
         await self.wait_for_dashboard()
