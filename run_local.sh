@@ -29,10 +29,23 @@ export COOKIES_BASE_DIR=$PROJECT_ROOT/cookies
 export DOWNLOAD_DIR=$PROJECT_ROOT/downloads
 export LOG_DIR=$PROJECT_ROOT/logs
 export DATABASE_PATH=$PROJECT_ROOT/data/femini_api.db
-# export HEADLESS=False
+export HEADLESS=False
 
+# Parse command line arguments
+while getopts "h" opt; do
+  case $opt in
+    h)
+      export HEADLESS=True
+      echo "Headless mode enabled."
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      exit 1
+      ;;
+  esac
+done
 # Add to PYTHONPATH for local development
-export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT/femini-api
+export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT/femini-playwright/src:$PROJECT_ROOT/femini-api
 
 # Create necessary directories
 mkdir -p data

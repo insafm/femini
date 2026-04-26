@@ -281,22 +281,82 @@ class GeminiClient:
         logger.info("starting_manual_login", credential_key=self.credential.key)
 
         clicked = await self.click_sign_in()
-        if not clicked:
-            # Maybe already on login page
-            try:
-                email_input = self.page.locator("#identifierId").first
-                if not await email_input.is_visible(timeout=3000):
-                    logger.error("cannot_find_login_page")
-                    return
-            except Exception:
-                logger.error("cannot_proceed_with_login")
-                return
+        await asyncio.sleep(2)
 
-        await asyncio.sleep(1)
-        await self.enter_email()
-        await self.click_next_button()
-        await self.enter_password()
-        await self.click_next_button()
+        account_selector = f"div[data-identifier='{self.credential.email}']"
+        account_element = self.page.locator(account_selector).first
+        
+        is_account_chooser = "signin/accountchooser" in self.page.url
+        
+        if is_account_chooser or await account_element.is_visible(timeout=2000):
+            logger.info("account_chooser_detected", credential_key=self.credential.key)
+            if await account_element.is_visible(timeout=3000):
+                await account_element.click()
+                logger.debug("clicked_existing_account")
+            else:
+                logger.debug("account_not_visible_in_chooser_falling_back")
+                try:
+                    use_another = self.page.locator("text='Use another account'").first
+                    if await use_another.is_visible(timeout=2000):
+                        await use_another.click()
+                except Exception:
+                    pass
+                await self.enter_email()
+                await self.click_next_button()
+        else:
+            if not clicked:
+                # Maybe already on login page
+                try:
+                    email_input = self.page.locator("#identifierId").first
+                    password_input = self.page.locator("input[name='Passwd']").first
+                    if not await email_input.is_visible(timeout=3000) and not await password_input.is_visible(timeout=1000):
+                        logger.error("cannot_find_login_page")
+                        return
+                except Exception:
+                    logger.error("cannot_proceed_with_login")
+                    return
+
+            email_input = self.page.locator("#identifierId").first
+            if await email_input.is_visible(timeout=2000):
+                await self.enter_email()
+                await self.click_next_button()
+
+        # Check for password or direct login
+        password_input = self.page.locator("input[name='Passwd']").first
+        dashboard_reached = False
+        
+        for _ in range(15): # wait up to 15s for password field or dashboard
+            if await password_input.is_visible():
+                break
+            if "gemini.google.com/app" in self.page.url or "gemini.google.com/prompt" in self.page.url:
+                dashboard_reached = True
+                break
+            await asyncio.sleep(1)
+            
+        if not dashboard_reached:
+            await self.enter_password()
+            await self.click_next_button()
+
+            # Handle potential recovery options screen
+            for _ in range(10):  # wait up to 10s for navigation after password
+                if "web/recoveryoptions" in self.page.url:
+                    logger.info("recovery_options_page_detected")
+                    try:
+                        cancel_button = self.page.locator("button:has-text('Cancel'), button[aria-label='Cancel']").first
+                        if await cancel_button.is_visible(timeout=5000):
+                            await cancel_button.click()
+                            logger.debug("clicked_cancel_on_recovery_options")
+                            await asyncio.sleep(2)
+                    except Exception as e:
+                        logger.warning("error_cancelling_recovery_options", error=str(e))
+                    break
+                
+                # If we made it to dashboard, stop waiting
+                if "gemini.google.com/app" in self.page.url or "gemini.google.com/prompt" in self.page.url:
+                    break
+                    
+                await asyncio.sleep(1)
+
         await self.wait_for_dashboard()
         await self.close_popups()
 
