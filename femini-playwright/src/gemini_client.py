@@ -377,17 +377,23 @@ class GeminiClient:
         """
         Get the text editor element.
         Ported from bananabot2.py: uses strict 'rich-textarea div.ql-editor'
+        If not found on the first attempt, reload the page and retry once.
         """
-        # bananabot2.py: EC.presence_of_element_located((By.CSS_SELECTOR, "rich-textarea div.ql-editor"))
         selector = "rich-textarea div.ql-editor"
+        timeouts = [10000, 15000]
 
-        try:
-            element = self.page.locator(selector).first
-            await element.wait_for(state="visible", timeout=10000)
-            logger.debug("editor_found", selector=selector)
-            return element
-        except Exception:
-            pass
+        for attempt, timeout in enumerate(timeouts):
+            if attempt > 0:
+                logger.warning("editor_not_found_reloading_page", selector=selector, attempt=attempt)
+                await self.page.reload(wait_until="domcontentloaded")
+                await asyncio.sleep(3)
+            try:
+                element = self.page.locator(selector).first
+                await element.wait_for(state="visible", timeout=timeout)
+                logger.debug("editor_found", selector=selector, attempt=attempt)
+                return element
+            except Exception:
+                pass
 
         logger.error("no_editor_found", selector=selector)
         raise RuntimeError("Could not find text editor element")
@@ -549,7 +555,8 @@ class GeminiClient:
 
         if current_chat_id:
             logger.info("starting_new_chat")
-            await self.page.goto(self.settings.base_url)
+            await self.page.goto(self.settings.base_url, wait_until="domcontentloaded")
+            await asyncio.sleep(3)
             await self.get_editor()
             await self.close_popups()
         else:
