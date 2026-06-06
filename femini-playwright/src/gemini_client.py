@@ -848,13 +848,23 @@ class GeminiClient:
         if enable and reference_starred_drive_image_name:
             self.reference_starred_drive_image_name = reference_starred_drive_image_name
 
-            uploader_btn = self.page.locator("uploader").first
+            uploader_btn = self.page.locator("button[aria-label='Upload and tools'], uploader").first
             await uploader_btn.click()
 
-            drive_uploader = self.page.locator("drive-uploader").first
+            drive_uploader = self.page.locator("button[data-test-id='uploader-drive-button'], drive-uploader").first
             await drive_uploader.wait_for(state="visible")
             await drive_uploader.click()
             await asyncio.sleep(2)
+
+            # Check if a Connect button appears (e.g. for Google Workspace extension)
+            try:
+                connect_btn = self.page.locator("button", has_text="Connect").first
+                if await connect_btn.is_visible(timeout=2000):
+                    logger.info("connect_button_found_clicking")
+                    await connect_btn.click()
+                    await asyncio.sleep(2)
+            except Exception as e:
+                logger.debug("no_connect_button_found", error=str(e))
 
             # Switch to the Google Picker iframe
             iframe_selector = "div.google-picker iframe"
@@ -879,34 +889,44 @@ class GeminiClient:
         # Logic ported from bananabot2.py: only toggle if not already in image mode
         if not self.is_last_response_image:
             logger.debug("switching_to_image_mode")
-            toolbox_drawer = self.page.locator("toolbox-drawer").first
-            await toolbox_drawer.wait_for(state="visible")
+            
+            # The toolbox is now inside the "Upload and tools" menu
+            # Only click the menu if we didn't already click it for drive upload above
+            # (If we did drive upload, the menu might still be open or closed, but actually after drive upload the Google picker opens. 
+            # Wait, if we did drive upload, we probably don't need to do "Create image" because the prompt handles it? No, set_as_image sets the tool.)
+            # Actually we should click the Upload and tools button to open the menu.
+            uploader_btn = self.page.locator("button[aria-label='Upload and tools'], uploader").first
+            try:
+                await uploader_btn.click()
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning("failed_to_click_uploader_btn", error=str(e))
             
             # Robust XPath from bananabot2.py
             create_images_selector = "//toolbox-drawer-item//div[contains(text(), 'Create image')]/ancestor::button"
             create_images_btn = self.page.locator(create_images_selector).first
 
-            # Retry loop for opening the drawer and clicking
+            # Retry loop for clicking
             drawer_opened = False
             for attempt in range(3):
                 try:
-                    await toolbox_drawer.click()
-                    await asyncio.sleep(2)  # Give drawer animation time to finish
-                    
                     if await create_images_btn.is_visible(timeout=5000):
                         drawer_opened = True
                         break
                     else:
                         logger.warning("create_images_btn_not_visible_retrying", attempt=attempt)
+                        # Maybe the menu closed, try opening it again
+                        await uploader_btn.click()
+                        await asyncio.sleep(1)
                 except Exception as e:
-                    logger.warning("error_clicking_toolbox_drawer", attempt=attempt, error=str(e))
+                    logger.warning("error_finding_create_image_btn", attempt=attempt, error=str(e))
                     await asyncio.sleep(1)
 
             if not drawer_opened:
                 logger.error("failed_to_open_toolbox_drawer_after_retries")
             
             try:
-                await create_images_btn.wait_for(state="visible", timeout=15000)
+                await create_images_btn.wait_for(state="visible", timeout=5000)
                 await create_images_btn.click()
                 logger.debug("clicked_create_images")
                 # Wait for tool selection to register
