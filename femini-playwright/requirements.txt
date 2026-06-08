@@ -11,6 +11,7 @@ uvicorn[standard]>=0.24.0
 requests>=2.31.0
 aiofiles>=23.2.0
 json-repair>=0.25.0
+py-gemini-watermark-remover>=0.2.9
 
 # Testing
 pytest>=7.4.0

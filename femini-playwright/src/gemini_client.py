@@ -1101,24 +1101,26 @@ class GeminiClient:
             self.is_last_response_image = False
 
     async def remove_watermark(self, image_path: str) -> Optional[str]:
-        """Remove watermark from image using OpenCV"""
+        """Remove watermark from image using py-gemini-watermark-remover"""
         if not image_path or not os.path.exists(image_path):
             logger.warning("image_file_not_found", path=image_path)
             return None
 
         try:
-            img = cv2.imread(image_path)
-            h, w = img.shape[:2]
-            x1, y1 = w - 80, h - 80
-            x2, y2 = w, h
-
-            mask = np.zeros(img.shape[:2], dtype=np.uint8)
-            mask[y1:y2, x1:x2] = 255
-
-            result = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
-            cv2.imwrite(image_path, result)
-
-            logger.info("watermark_removed", path=image_path)
+            from gemini_watermark_remover import process_image
+            
+            success = process_image(
+                input_path=image_path,
+                output_path=image_path,
+                remove=True,
+                auto_detect=True
+            )
+            
+            if success:
+                logger.info("watermark_removed", path=image_path)
+            else:
+                logger.warning("watermark_removal_failed_or_skipped", path=image_path)
+                
             return image_path
 
         except Exception as e:
