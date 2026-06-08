@@ -297,6 +297,7 @@ async def submit_request(request: SubmitRequest):
             account_id=request.account_id,
             credential_key=request.credential_key,
             credential_mode=request.credential_mode,
+            gemini_model=request.gemini_model,
             reference_image_name=request.reference_image_name,
             filename_suffix=request.filename_suffix,
             save_dir=request.save_dir,

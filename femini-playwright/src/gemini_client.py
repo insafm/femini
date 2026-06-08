@@ -274,6 +274,7 @@ class GeminiClient:
         # Check if already logged in
         if await self._is_logged_in_on_current_page():
             await self.close_popups()
+            await self.select_model()
             logger.info("setup_completed_already_logged_in", credential_key=self.credential.key)
             return
 
@@ -361,8 +362,87 @@ class GeminiClient:
 
         await self.wait_for_dashboard()
         await self.close_popups()
+        await self.select_model()
 
         logger.info("setup_completed_with_manual_login", credential_key=self.credential.key)
+
+    async def select_model(self, model_name: Optional[str] = None):
+        """Switch Gemini model if specified in settings or parameter"""
+        target_model = model_name or self.settings.gemini_model
+        if not target_model:
+            return
+
+        target_model = target_model.strip()
+        logger.info("checking_model", target_model=target_model)
+
+        try:
+            button_selector = "[data-test-id='bard-mode-menu-button']"
+            button = self.page.locator(button_selector).first
+
+            if not await button.is_visible(timeout=5000):
+                logger.warning("mode_menu_button_not_visible")
+                return
+
+            # Check if currently selected model is already the target
+            current_model_label = (await button.text_content() or "").strip()
+            
+            if current_model_label.lower() == target_model.lower():
+                logger.info("model_already_selected", model=target_model)
+                return
+                
+            if target_model.lower().endswith(current_model_label.lower()):
+                logger.info("model_already_selected_by_suffix", current=current_model_label, target=target_model)
+                return
+
+            logger.info("switching_model", from_model=current_model_label, to_model=target_model)
+            
+            # Click to open menu
+            await button.click()
+            await asyncio.sleep(1)
+
+            # Find menu items
+            menu_items = await self.page.locator("gem-menu-item, mat-menu-item, [role='menuitem']").all()
+
+            target_item = None
+            
+            # Try to find exact match or ends with first
+            for item in menu_items:
+                label_el = item.locator(".label").first
+                if await label_el.is_visible(timeout=500):
+                    item_text = (await label_el.text_content() or "").strip()
+                else:
+                    item_text = (await item.text_content() or "").strip()
+                    
+                if item_text.lower() == target_model.lower():
+                    target_item = item
+                    break
+                elif item_text.lower().endswith(target_model.lower()):
+                    target_item = item
+                    break
+            
+            # Fallback to contains
+            if not target_item:
+                for item in menu_items:
+                    label_el = item.locator(".label").first
+                    if await label_el.is_visible(timeout=500):
+                        item_text = (await label_el.text_content() or "").strip()
+                    else:
+                        item_text = (await item.text_content() or "").strip()
+                        
+                    if target_model.lower() in item_text.lower() or item_text.lower() in target_model.lower():
+                        target_item = item
+                        break
+            
+            if target_item and await target_item.is_visible():
+                await target_item.click()
+                logger.info("model_switched_successfully", model=target_model)
+                await asyncio.sleep(2)
+            else:
+                logger.warning("target_model_not_found_in_list", model=target_model)
+                await self.page.keyboard.press("Escape")
+                
+        except Exception as e:
+            logger.error("error_switching_model", error=str(e))
 
     async def wait_for_completion(self, timeout: int = 120):
         """Wait if a generation is already in progress"""
@@ -1180,7 +1260,12 @@ class GeminiClient:
                         logger.info("starting_new_chat_from_existing", current_chat=current_chat_id)
                         await self.load_new_chat()
                     else:
-                        logger.info("already_on_new_chat_page")
+                        logger.info("already_in_new_chat")
+
+            # Switch model based on request parameter or fallback to config
+            model_to_use = getattr(request, "gemini_model", None)
+            if model_to_use or self.settings.gemini_model:
+                await self.select_model(model_to_use)
 
             # Handle image mode
             if request.is_image:

@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
 from pathlib import Path
@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # Optional API server settings
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    
+    # Model Selection
+    gemini_model: Optional[str] = None
 
     model_config = {
         "env_file": ".env",

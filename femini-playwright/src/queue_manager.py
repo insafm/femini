@@ -23,6 +23,7 @@ class Request:
     account_id: Optional[str] = None
     credential_key: Optional[str] = None
     credential_mode: Optional[str] = None
+    gemini_model: Optional[str] = None
     return_image_data: bool = False  # Return base64-encoded image data
     filename_suffix: str = ""
     save_dir: Optional[str] = None

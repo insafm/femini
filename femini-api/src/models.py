@@ -16,6 +16,7 @@ class SubmitRequest(BaseModel):
     account_id: Optional[str] = Field(None, description="Account ID for chat")
     credential_key: Optional[str] = Field(None, description="Specific credential key to route request to")
     credential_mode: Optional[str] = Field(None, description="Override credential selection mode")
+    gemini_model: Optional[str] = Field(None, description="Gemini model to use for this request")
     reference_image_name: Optional[str] = Field(None, description="Reference image from Google Drive")
     filename_suffix: str = Field("", description="Suffix for saved filenames")
     save_dir: Optional[str] = Field(None, description="Custom directory to save downloads")
