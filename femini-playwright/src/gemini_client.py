@@ -548,8 +548,8 @@ class GeminiClient:
             # a late-arriving previous response inflating the baseline.
             pre_send_count = await self.page.locator("message-content").count()
 
-            # Send prompt - strict bananabot selector with retry/verification
-            send_selector = "//button[contains(@aria-label, 'Send')]"
+            # Send prompt - strict selector based on latest DOM with retry/verification
+            send_selector = "[data-test-id='send-button-container'] button[aria-label*='Send']"
             sent = False
 
             for attempt in range(3):
@@ -560,8 +560,9 @@ class GeminiClient:
                         logger.debug("send_button_clicked", attempt=attempt)
                         sent = True
 
-                        # Wait for send button to disappear (submission confirmed).
+                        # Wait for send button to disappear or change state (submission confirmed).
                         try:
+                            # When sent, the button either hides, loses the 'Send' aria-label, or the container hides
                             await send_button.wait_for(state="hidden", timeout=3000)
                             logger.info("prompt_sent_verified")
                         except PlaywrightTimeoutError:
@@ -660,12 +661,43 @@ class GeminiClient:
             
             logger.info("old_count", old_count=old_count)
 
-            # Wait for count to increase
-            # bananabot uses WebDriverWait(..., lambda d: len(...) > old_count)
-            await self.page.wait_for_function(
-                f"() => document.querySelectorAll('message-content').length > {old_count}",
-                timeout=timeout_seconds * 1000
-            )
+            # Wait for count to increase or send button to reappear
+            await asyncio.sleep(1) # Ensure DOM has fully updated after sending
+            
+            send_selector = "[data-test-id='send-button-container'] button[aria-label*='Send']"
+            start_time = time.time()
+            success = False
+            
+            while time.time() - start_time < timeout_seconds:
+                try:
+                    await self.page.wait_for_function(
+                        f"""() => {{
+                            if (document.querySelectorAll('message-content').length > {old_count}) return true;
+                            const sendBtn = document.querySelector("[data-test-id='send-button-container'] button[aria-label*='Send']");
+                            if (sendBtn && sendBtn.offsetParent !== null) return true;
+                            return false;
+                        }}""",
+                        timeout=2000
+                    )
+                except PlaywrightTimeoutError:
+                    pass
+                
+                current_count = await self.page.locator("message-content").count()
+                if current_count > old_count:
+                    success = True
+                    break
+                    
+                send_btn = self.page.locator(send_selector).first
+                if await send_btn.is_visible(timeout=500):
+                    logger.warning("generation_failed_early_send_button_visible_retrying_click")
+                    try:
+                        await send_btn.click(timeout=1000)
+                        await send_btn.wait_for(state="hidden", timeout=3000)
+                    except Exception:
+                        pass
+                        
+            if not success:
+                raise PlaywrightTimeoutError("Timeout waiting for new message")
 
         except (asyncio.TimeoutError, PlaywrightTimeoutError):
             logger.warning("timeout_waiting_for_new_message", retry_count=retry_count)
@@ -799,13 +831,32 @@ class GeminiClient:
         "I can still find images from the web",
     ]
 
-    async def get_image_response(self, retry_count: int = 0) -> Tuple[Optional[str], Optional[str]]:
+    async def get_image_response(self, old_count: Optional[int] = None, retry_count: int = 0) -> Tuple[Optional[str], Optional[str]]:
         """Wait for image generation to complete and return the URL and optional error message with retry logic"""
         logger.info("waiting_for_image", retry_count=retry_count)
         
         try:
+            send_selector = "[data-test-id='send-button-container'] button[aria-label*='Send']"
+            
             # Poll for new image src AND error text in the LAST message-content
             for _ in range(self.settings.image_generation_timeout):
+                if old_count is not None:
+                    current_count = await self.page.locator("message-content").count()
+                    if current_count <= old_count:
+                        send_btn = self.page.locator(send_selector).first
+                        if await send_btn.is_visible(timeout=500):
+                            logger.warning("generation_failed_early_send_button_visible_retrying_click")
+                            try:
+                                await send_btn.click(timeout=1000)
+                                await send_btn.wait_for(state="hidden", timeout=3000)
+                            except Exception:
+                                pass
+                            await asyncio.sleep(1)
+                            continue
+                        
+                        await asyncio.sleep(0.5)
+                        continue
+
                 # Restrict to the last message to ensure we get the latest generation
                 last_msg = self.page.locator("message-content").last
                 
@@ -854,8 +905,8 @@ class GeminiClient:
                                         self.generation_in_progress = False
                                         await asyncio.sleep(5)
                                         await self.set_as_image(True, self.reference_starred_drive_image_name)
-                                        await self.send_prompt(self.last_prompt)
-                                        return await self.get_image_response(retry_count + 1)
+                                        retry_old_count = await self.send_prompt(self.last_prompt)
+                                        return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
                                     
                                     self.generation_in_progress = False
                                     return None, f"AI Error: {error_text}"
@@ -873,8 +924,8 @@ class GeminiClient:
                            max_retries=self.settings.max_retries)
                 await asyncio.sleep(5)
                 await self.set_as_image(True, self.reference_starred_drive_image_name)
-                await self.send_prompt(self.last_prompt)
-                return await self.get_image_response(retry_count + 1)
+                retry_old_count = await self.send_prompt(self.last_prompt)
+                return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
 
             return None, "No new image generated"
 
@@ -891,8 +942,8 @@ class GeminiClient:
                 # Don't load new chat for image retry - stay in same chat
                 await asyncio.sleep(5)
                 await self.set_as_image(True, self.reference_starred_drive_image_name)
-                await self.send_prompt(self.last_prompt)
-                return await self.get_image_response(retry_count + 1)
+                retry_old_count = await self.send_prompt(self.last_prompt)
+                return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
 
             logger.error("max_retries_exceeded_for_image", attempts=retry_count + 1, max_retries=self.settings.max_retries)
             return None, "Timeout waiting for image generation"
@@ -910,8 +961,8 @@ class GeminiClient:
                 # Don't load new chat for image retry - stay in same chat
                 await asyncio.sleep(5)
                 await self.set_as_image(True, self.reference_starred_drive_image_name)
-                await self.send_prompt(self.last_prompt)
-                return await self.get_image_response(retry_count + 1)
+                retry_old_count = await self.send_prompt(self.last_prompt)
+                return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
 
             logger.error("max_retries_exceeded_after_error", attempts=retry_count + 1)
             return None, f"Error getting image response: {str(e)}"
@@ -1180,28 +1231,32 @@ class GeminiClient:
             self.generation_in_progress = False
             self.is_last_response_image = False
 
-    async def remove_watermark(self, image_path: str) -> Optional[str]:
+    @staticmethod
+    async def remove_watermark(image_path: str, output_path: Optional[str] = None) -> Optional[str]:
         """Remove watermark from image using py-gemini-watermark-remover"""
         if not image_path or not os.path.exists(image_path):
             logger.warning("image_file_not_found", path=image_path)
             return None
 
+        if not output_path:
+            output_path = image_path
+
         try:
-            from gemini_watermark_remover import process_image
+            from .femini_watermark_remover import process_image_custom as process_image
             
             success = process_image(
                 input_path=image_path,
-                output_path=image_path,
+                output_path=output_path,
                 remove=True,
                 auto_detect=True
             )
             
             if success:
-                logger.info("watermark_removed", path=image_path)
+                logger.info("watermark_removed", path=output_path)
             else:
-                logger.warning("watermark_removal_failed_or_skipped", path=image_path)
+                logger.warning("watermark_removal_failed_or_skipped", path=output_path)
                 
-            return image_path
+            return output_path
 
         except Exception as e:
             logger.error("error_removing_watermark", error=str(e), trace=traceback.format_exc())
@@ -1279,7 +1334,7 @@ class GeminiClient:
 
             # Get response
             if request.is_image:
-                result_url, error_msg = await self.get_image_response()
+                result_url, error_msg = await self.get_image_response(old_count=old_count)
                 account_id, chat_id = await self.get_current_chat_id()
 
                 if result_url:
