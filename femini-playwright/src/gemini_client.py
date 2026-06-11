@@ -434,6 +434,17 @@ class GeminiClient:
                         break
             
             if target_item and await target_item.is_visible():
+                is_disabled = await target_item.get_attribute("aria-disabled") == "true"
+                if is_disabled:
+                    sublabel_el = target_item.locator(".sublabel").first
+                    if await sublabel_el.is_visible(timeout=500):
+                        reset_msg = (await sublabel_el.text_content() or "").strip()
+                        logger.warning("model_disabled_due_to_limit", model=target_model, message=reset_msg)
+                    else:
+                        logger.warning("model_disabled", model=target_model)
+                    await self.page.keyboard.press("Escape")
+                    return
+
                 await target_item.click()
                 logger.info("model_switched_successfully", model=target_model)
                 await asyncio.sleep(2)
