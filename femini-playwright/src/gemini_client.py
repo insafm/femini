@@ -840,6 +840,7 @@ class GeminiClient:
         "something went wrong",
         "more images for you today",
         "I can still find images from the web",
+        "can't generate",
     ]
 
     async def get_image_response(self, old_count: Optional[int] = None, retry_count: int = 0) -> Tuple[Optional[str], Optional[str]]:
