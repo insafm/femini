@@ -51,6 +51,10 @@ class BrowserManager:
             await self.cleanup()
             raise
 
+    # Stable Chrome release to impersonate — keeps UA, sec-ch-ua, and full-version in sync
+    _CHROME_VERSION = "124.0.6367.207"
+    _CHROME_MAJOR = "124"
+
     async def _create_context(self, credential) -> BrowserContext:
         """Create persistent browser context for a credential"""
         user_data_path = self.settings.get_user_data_path(credential.key)
@@ -59,9 +63,37 @@ class BrowserManager:
         context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=str(user_data_path),
             headless=self.settings.headless,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            # UA must match the sec-ch-ua major version — mismatch is a red flag
+            user_agent=(
+                f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{self._CHROME_MAJOR}.0.0.0 Safari/537.36"
+            ),
             ignore_https_errors=True,
             viewport={"width": 1800, "height": 850},
+            # Override Chromium's own sec-ch-ua headers which expose the "Chromium" brand.
+            # Real Chrome always includes the "Google Chrome" brand — its absence is detected.
+            extra_http_headers={
+                "sec-ch-ua": (
+                    f'"Google Chrome";v="{self._CHROME_MAJOR}", '
+                    f'"Chromium";v="{self._CHROME_MAJOR}", '
+                    '"Not-A.Brand";v="99"'
+                ),
+                "sec-ch-ua-full-version": f'"{self._CHROME_VERSION}"',
+                "sec-ch-ua-full-version-list": (
+                    f'"Google Chrome";v="{self._CHROME_VERSION}", '
+                    f'"Chromium";v="{self._CHROME_VERSION}", '
+                    '"Not-A.Brand";v="99.0.0.0"'
+                ),
+                "sec-ch-ua-platform": '"Windows"',
+                "sec-ch-ua-platform-version": '"10.0.0"',
+                "sec-ch-ua-arch": '"x86"',
+                "sec-ch-ua-bitness": '"64"',
+                "sec-ch-ua-model": '""',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-wow64": "?0",
+                "sec-ch-ua-form-factors": '"Desktop"',
+                "accept-language": "en-US,en;q=0.9",
+            },
             args=[
                 "--no-sandbox",
                 "--disable-notifications",
@@ -82,6 +114,11 @@ class BrowserManager:
         # Set default timeout for all pages in this context
         context.set_default_timeout(self.settings.timeout * 1000)
 
+        # Strip x-client-data from every request at the context level.
+        # This header is a Chrome-internal protobuf of experiment IDs — Playwright sends
+        # a minimal/fake value which is worse than sending nothing at all.
+        await context.route("**/*", self._strip_detection_headers)
+
         # Set up context-level event handlers
         context.on("page", self._on_new_page)
 
@@ -93,11 +130,36 @@ class BrowserManager:
                    user_data_path=str(user_data_path))
         return context
 
+    async def _strip_detection_headers(self, route, request):
+        """
+        Intercept all outgoing requests and strip headers that expose Playwright/Chromium
+        to Google's bot-detection system.
+
+        - x-client-data: Chrome-internal protobuf of experiment IDs. Playwright sends
+          a minimal value which is immediately fingerprinted. Absent is better than fake.
+        """
+        try:
+            headers = {k: v for k, v in request.headers.items()
+                       if k.lower() != "x-client-data"}
+            await route.continue_(headers=headers)
+        except Exception:
+            # Always fall through so requests are never silently dropped
+            try:
+                await route.continue_()
+            except Exception:
+                pass
+
     async def _on_new_page(self, page: Page):
-        """Handle new page creation"""
-        # Add stealth measures to each new page
+        """Handle new page creation — inject JS stealth patches"""
         await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            // Remove the webdriver flag — present in all automated browsers by default
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            // Make navigator.chrome truthy so pages don't detect "not-Chrome"
+            if (!window.chrome) window.chrome = { runtime: {} };
+            // Spoof a non-empty plugins list (automation browsers have 0 plugins)
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+            // Consistent language
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
         """)
 
     async def get_context(self, credential_key: str) -> BrowserContext:

@@ -143,20 +143,27 @@ class GeminiClient:
 
     async def click_sign_in(self) -> bool:
         """
-        Click the Sign In button/link with single selector fallback from bananabot2.py
+        Click the Sign In button. Tries multiple selectors to handle DOM changes.
         """
-        # bananabot2.py uses: "//a[contains(@aria-label, 'Sign in') or span[text()='Sign in']]"
-        selector = "//a[contains(@aria-label, 'Sign in') or span[text()='Sign in']]"
+        selectors = [
+            # Current DOM: <gem-button data-test-id='sign-in-button'>
+            "[data-test-id='sign-in-button']",
+            # Inner button text fallback
+            "button:has-text('Sign in')",
+            # Legacy anchor-based selector
+            "//a[contains(@aria-label, 'Sign in') or .//span[text()='Sign in']]",
+        ]
 
-        try:
-            element = self.page.locator(selector).first
-            await element.wait_for(state="visible", timeout=3000)
-            await element.click()
-            logger.info("clicked_sign_in", selector=selector)
-            await asyncio.sleep(1)
-            return True
-        except Exception:
-            pass
+        for selector in selectors:
+            try:
+                element = self.page.locator(selector).first
+                await element.wait_for(state="visible", timeout=3000)
+                await element.click()
+                logger.info("clicked_sign_in", selector=selector)
+                await asyncio.sleep(1)
+                return True
+            except Exception:
+                continue
 
         logger.warning("sign_in_button_not_found")
         return False
@@ -216,31 +223,43 @@ class GeminiClient:
     async def _is_logged_in_on_current_page(self) -> bool:
         """
         Check if already logged in on current page.
-        Logic ported from bananabot2.py: check_if_logged_in
-        Returns True if 'Sign in' button matches are NOT found.
+        Returns True only if a sign-in button is NOT visible AND a known
+        logged-in indicator IS present, to avoid false positives.
         """
         try:
-            # bananabot2.py uses: "//a[contains(@aria-label, 'Sign in') or span[text()='Sign in']]"
-            # If found -> False (not logged in). Else -> True.
-            
-            # We wait a brief moment to ensure page load/render if needed, matching bananabot slightly
-            await asyncio.sleep(2) 
+            await asyncio.sleep(2)
 
-            selector = "//a[contains(@aria-label, 'Sign in') or span[text()='Sign in']]"
-            
-            # Check visibility
-            element = self.page.locator(selector).first
-            if await element.is_visible(timeout=3000):
-                logger.debug("sign_in_button_found_marking_not_logged_in")
-                return False
-            
-            logger.debug("sign_in_button_not_found_assuming_logged_in")
-            return True
+            # Sign-in button selectors — any of these visible means NOT logged in
+            sign_in_selectors = [
+                "[data-test-id='sign-in-button']",
+                "button:has-text('Sign in')",
+                "//a[contains(@aria-label, 'Sign in') or .//span[text()='Sign in']]",
+            ]
+
+            for selector in sign_in_selectors:
+                try:
+                    element = self.page.locator(selector).first
+                    if await element.is_visible(timeout=2000):
+                        logger.debug("sign_in_button_found_marking_not_logged_in", selector=selector)
+                        return False
+                except Exception:
+                    continue
+
+            # Double-check: look for a known logged-in element (the chat editor)
+            try:
+                editor = self.page.locator("rich-textarea div.ql-editor").first
+                if await editor.is_visible(timeout=3000):
+                    logger.debug("editor_found_confirming_logged_in")
+                    return True
+            except Exception:
+                pass
+
+            # No sign-in button and no editor — ambiguous; treat as not logged in to be safe
+            logger.debug("login_status_ambiguous_assuming_not_logged_in")
+            return False
 
         except Exception as e:
             logger.warning("error_checking_login_status", error=str(e))
-            # If error checking, safe assumption might be False to force re-login check or error out?
-            # bananabot returns False on exception
             return False
 
     async def close_popups(self):
@@ -259,6 +278,59 @@ class GeminiClient:
                     await asyncio.sleep(0.5)
             except Exception:
                 pass
+
+    # Error phrases that indicate a transient server/network rejection by Gemini
+    _TRANSIENT_ERROR_PHRASES = [
+        "check your internet connection",
+        "something went wrong",
+        "try again",
+        "server error",
+        "network error",
+        "unable to process",
+        "request failed",
+    ]
+
+    async def _detect_page_error(self) -> Optional[str]:
+        """
+        Detect transient error toasts / snackbars shown by Gemini when the server
+        rejects a generation request (e.g. "Check your internet connection and try again").
+        Returns the matched error phrase (lowercased) or None.
+        """
+        # Snackbar / toast selectors used by Angular Material (which Gemini uses)
+        error_selectors = [
+            "mat-snack-bar-container",
+            ".toast-message",
+            "[class*='snack']",
+            "[class*='toast']",
+            "[class*='error-message']",
+            "[role='alert']",
+        ]
+        for selector in error_selectors:
+            try:
+                el = self.page.locator(selector).first
+                if await el.is_visible(timeout=500):
+                    text = (await el.text_content() or "").lower()
+                    for phrase in self._TRANSIENT_ERROR_PHRASES:
+                        if phrase in text:
+                            logger.warning("page_error_detected", selector=selector, phrase=phrase, text=text[:120])
+                            return phrase
+            except Exception:
+                pass
+        return None
+
+    async def _recover_from_page_error(self):
+        """
+        Reload and re-navigate to a fresh Gemini chat to clear any
+        transient server error state on the page.
+        """
+        logger.info("recovering_from_page_error")
+        try:
+            await self.page.goto(self.settings.base_url, wait_until="domcontentloaded")
+            await asyncio.sleep(4)
+            await self.close_popups()
+            await self.select_model()
+        except Exception as e:
+            logger.warning("recovery_navigation_failed", error=str(e))
 
     async def setup(self):
         """Complete setup and login process"""
@@ -577,9 +649,16 @@ class GeminiClient:
                             await send_button.wait_for(state="hidden", timeout=3000)
                             logger.info("prompt_sent_verified")
                         except PlaywrightTimeoutError:
-                            # The click very likely registered even if the button lingers
-                            # briefly.  Do NOT retry — that would double-submit.
+                            # Button didn't hide — server likely rejected the request (503/rate-limit).
+                            # Check for a page error toast before assuming the click registered.
                             logger.warning("send_button_still_visible_after_click", attempt=attempt)
+                            page_error = await self._detect_page_error()
+                            if page_error:
+                                logger.warning("send_rejected_by_server", error=page_error)
+                                await self._recover_from_page_error()
+                                # Raise so the caller's retry logic (get_response) handles resend
+                                self.generation_in_progress = False
+                                raise RuntimeError(f"Send rejected by server: {page_error}")
                         # Either way, one click is enough — stop the loop.
                         break
                     else:
@@ -701,6 +780,13 @@ class GeminiClient:
                 send_btn = self.page.locator(send_selector).first
                 if await send_btn.is_visible(timeout=500):
                     logger.warning("generation_failed_early_send_button_visible_retrying_click")
+                    # Check if Gemini is showing a transient error (e.g. "Check your internet connection")
+                    page_error = await self._detect_page_error()
+                    if page_error:
+                        logger.warning("transient_error_detected_recovering", error=page_error)
+                        await self._recover_from_page_error()
+                        # Resend after recovery — break the inner loop to let the outer retry handle it
+                        raise PlaywrightTimeoutError(f"Transient page error: {page_error}")
                     try:
                         await send_btn.click(timeout=1000)
                         await send_btn.wait_for(state="hidden", timeout=3000)
@@ -858,6 +944,16 @@ class GeminiClient:
                         send_btn = self.page.locator(send_selector).first
                         if await send_btn.is_visible(timeout=500):
                             logger.warning("generation_failed_early_send_button_visible_retrying_click")
+                            # Check if Gemini is showing a transient error toast
+                            page_error = await self._detect_page_error()
+                            if page_error:
+                                logger.warning("transient_error_detected_recovering", error=page_error)
+                                await self._recover_from_page_error()
+                                await asyncio.sleep(3)
+                                # Re-arm image mode and resend
+                                await self.set_as_image(True, self.reference_starred_drive_image_name)
+                                retry_old_count = await self.send_prompt(self.last_prompt)
+                                return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
                             try:
                                 await send_btn.click(timeout=1000)
                                 await send_btn.wait_for(state="hidden", timeout=3000)
