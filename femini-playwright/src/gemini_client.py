@@ -1234,76 +1234,95 @@ class GeminiClient:
         timestamp = time.strftime('%Y%m%d_%H%M%S')
         filename = os.path.join(save_dir_str, f"{filename_prefix}{timestamp}{filename_suffix}.png")
 
-        # ── Strategy 1: click the download button and capture the download event ──
-        try:
-            download_btn = self.page.locator("button[aria-label*='ownload']").last
-            if await download_btn.count() > 0:
-                logger.info("download_button_found", url=url[:80])
-                # Focus the button first (as required by Gemini's JS handler)
-                await download_btn.focus()
-                await asyncio.sleep(0.3)
+        # ── Retrying up to 3 times ──
+        for attempt in range(3):
+            # ── Strategy 1: click the download button and capture the download event ──
+            try:
+                download_btn = self.page.locator("button[aria-label*='ownload']").last
+                if await download_btn.count() > 0:
+                    logger.info("download_button_found", url=url[:80], attempt=attempt + 1)
+                    # Focus the button first (as required by Gemini's JS handler)
+                    await download_btn.focus()
+                    await asyncio.sleep(0.3)
 
-                async with self.page.expect_download(timeout=30_000) as dl_info:
-                    await download_btn.click()
+                    async with self.page.expect_download(timeout=30_000) as dl_info:
+                        await download_btn.click()
 
-                download = await dl_info.value
-                await download.save_as(filename)
-                content = open(filename, 'rb').read() if return_data else None
-                logger.info("image_downloaded_via_button", filename=filename, size=os.path.getsize(filename))
+                    download = await dl_info.value
+                    await download.save_as(filename)
+                    content = open(filename, 'rb').read() if return_data else None
+                    logger.info("image_downloaded_via_button", filename=filename, size=os.path.getsize(filename))
 
-                if return_data:
-                    return filename, content
-                return filename, None
-            else:
-                logger.warning("download_button_not_found", url=url[:80])
-        except Exception as e:
-            logger.warning("download_button_failed", error=str(e), error_type=type(e).__name__, url=url[:80])
+                    if return_data:
+                        return filename, content
+                    return filename, None
+                else:
+                    logger.warning("download_button_not_found", url=url[:80], attempt=attempt + 1)
+            except Exception as e:
+                logger.warning("download_button_failed", error=str(e), error_type=type(e).__name__, url=url[:80], attempt=attempt + 1)
 
-        # ── Strategy 2: blob URL via page.evaluate / fetch ──
-        try:
-            if url.startswith("blob:"):
-                logger.info("fetching_blob_url_via_evaluate", url=url[:80])
-                b64: Optional[str] = await self.page.evaluate("""async (blobUrl) => {
-                    try {
-                        const resp = await fetch(blobUrl);
-                        const buf = await resp.arrayBuffer();
-                        const bytes = new Uint8Array(buf);
-                        let binary = '';
-                        for (let i = 0; i < bytes.byteLength; i++) {
-                            binary += String.fromCharCode(bytes[i]);
+            # ── Strategy 2: blob URL via page.evaluate / fetch ──
+            try:
+                if url.startswith("blob:"):
+                    logger.info("fetching_blob_url_via_evaluate", url=url[:80], attempt=attempt + 1)
+                    b64: Optional[str] = await self.page.evaluate("""async (blobUrl) => {
+                        try {
+                            const img = document.querySelector(`img[src="${blobUrl}"]`);
+                            if (img && img.naturalWidth > 0) {
+                                const canvas = document.createElement('canvas');
+                                canvas.width = img.naturalWidth;
+                                canvas.height = img.naturalHeight;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0);
+                                return canvas.toDataURL('image/png').split(',')[1];
+                            }
+
+                            const resp = await fetch(blobUrl);
+                            const blob = await resp.blob();
+                            return await new Promise((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                    const dataUrl = reader.result;
+                                    resolve(dataUrl.substring(dataUrl.indexOf(',') + 1));
+                                };
+                                reader.onerror = reject;
+                                reader.readAsDataURL(blob);
+                            });
+                        } catch (e) {
+                            return null;
                         }
-                        return btoa(binary);
-                    } catch (e) {
-                        return null;
-                    }
-                }""", url)
+                    }""", url)
 
-                if b64:
-                    content = base64.b64decode(b64)
-                    with open(filename, 'wb') as f:
-                        f.write(content)
-                    logger.info("image_downloaded_via_blob_eval", filename=filename, size=len(content))
-                    if return_data:
-                        return filename, content
-                    return filename, None
+                    if b64:
+                        content = base64.b64decode(b64)
+                        with open(filename, 'wb') as f:
+                            f.write(content)
+                        logger.info("image_downloaded_via_blob_eval", filename=filename, size=len(content))
+                        if return_data:
+                            return filename, content
+                        return filename, None
+                    else:
+                        logger.warning("blob_eval_returned_null", url=url[:80], attempt=attempt + 1)
                 else:
-                    logger.warning("blob_eval_returned_null", url=url[:80])
-            else:
-                # Regular HTTP URL – use the API context
-                response = await self.context.request.get(url)
-                if response.status == 200:
-                    content = await response.body()
-                    with open(filename, 'wb') as f:
-                        f.write(content)
-                    logger.info("image_downloaded_via_api_context", filename=filename, size=len(content))
-                    if return_data:
-                        return filename, content
-                    return filename, None
-                else:
-                    logger.warning("image_download_failed", status=response.status, url=url[:80])
-        except Exception as e:
-            logger.error("error_downloading_image_fallback", error=str(e), error_type=type(e).__name__,
-                         url=url[:80], trace=traceback.format_exc())
+                    # Regular HTTP URL – use the API context
+                    response = await self.context.request.get(url)
+                    if response.status == 200:
+                        content = await response.body()
+                        with open(filename, 'wb') as f:
+                            f.write(content)
+                        logger.info("image_downloaded_via_api_context", filename=filename, size=len(content))
+                        if return_data:
+                            return filename, content
+                        return filename, None
+                    else:
+                        logger.warning("image_download_failed", status=response.status, url=url[:80], attempt=attempt + 1)
+            except Exception as e:
+                logger.error("error_downloading_image_fallback", error=str(e), error_type=type(e).__name__,
+                             url=url[:80], trace=traceback.format_exc(), attempt=attempt + 1)
+
+            if attempt < 2:
+                logger.info("retrying_download", attempt=attempt + 1, max_retries=3)
+                await asyncio.sleep(2)
 
         return None, None
 

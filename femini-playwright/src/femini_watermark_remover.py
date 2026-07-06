@@ -100,9 +100,14 @@ class FeminiWatermarkRemover(WatermarkRemover):
         valid_configs = []
         for test_size, test_margin in configs_to_try:
             self.current_margin = test_margin
-            if self.detect_watermark(image, force_size=test_size):
-                actual_margin = test_margin if test_margin is not None else test_size.value[2]
-                corr = self.get_correlation_score(image, test_size, actual_margin)
+            actual_margin = test_margin if test_margin is not None else test_size.value[2]
+            corr = self.get_correlation_score(image, test_size, actual_margin)
+            
+            # Try strict detection
+            is_detected = self.detect_watermark(image, force_size=test_size)
+            
+            # Accept if strict detection passes OR if template correlation is high enough
+            if is_detected or corr > 0.60:
                 valid_configs.append((corr, test_size, actual_margin))
 
         if valid_configs:
