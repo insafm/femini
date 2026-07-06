@@ -1087,13 +1087,25 @@ class GeminiClient:
         if enable and reference_starred_drive_image_name:
             self.reference_starred_drive_image_name = reference_starred_drive_image_name
 
-            uploader_btn = self.page.locator("button[aria-label='Upload and tools'], uploader").first
-            await uploader_btn.click()
+            # Add retry with page reload if uploader-drive-button times out
+            for attempt in range(3):
+                try:
+                    uploader_btn = self.page.locator("button[aria-label='Upload and tools'], uploader").first
+                    await uploader_btn.click()
 
-            drive_uploader = self.page.locator("button[data-test-id='uploader-drive-button'], drive-uploader").first
-            await drive_uploader.wait_for(state="visible")
-            await drive_uploader.click()
-            await asyncio.sleep(2)
+                    drive_uploader = self.page.locator("button[data-test-id='uploader-drive-button'], drive-uploader").first
+                    await drive_uploader.wait_for(state="visible", timeout=10000)
+                    await drive_uploader.click()
+                    await asyncio.sleep(2)
+                    break  # Success
+                except PlaywrightTimeoutError:
+                    if attempt == 0:
+                        logger.warning("drive_uploader_timeout_reloading_page")
+                        await self.page.reload(wait_until="domcontentloaded")
+                        await asyncio.sleep(4)
+                    else:
+                        logger.error("drive_uploader_timeout_after_reload")
+                        raise
 
             # Check if a Connect button appears (e.g. for Google Workspace extension)
             try:
