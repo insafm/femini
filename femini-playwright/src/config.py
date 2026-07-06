@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     log_dir: str = "/app/logs"
 
     # Gemini settings
-    base_url: str = "https://gemini.google.com/app?hl=en-IN"
+    base_url: str = "https://gemini.google.com/app"
     max_timeout: int = 180
     timeout: int = 60
     max_retries: int = 5

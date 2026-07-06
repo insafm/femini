@@ -705,9 +705,9 @@ class GeminiClient:
 
     async def load_chat(self, account_id: Optional[str], chat_id: str):
         """Load a specific chat session by account and chat ID"""
-        chat_url = f"https://gemini.google.com/app/{chat_id}?hl=en-IN"
+        chat_url = f"https://gemini.google.com/app/{chat_id}"
         if account_id:
-            chat_url = f"https://gemini.google.com/u/{account_id}/app/{chat_id}?hl=en-IN"
+            chat_url = f"https://gemini.google.com/u/{account_id}/app/{chat_id}"
 
         current_account_id, current_chat_id = await self.get_current_chat_id()
 
