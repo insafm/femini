@@ -1107,15 +1107,31 @@ class GeminiClient:
                         logger.error("drive_uploader_timeout_after_reload")
                         raise
 
-            # Check if a Connect button appears (e.g. for Google Workspace extension)
-            try:
-                connect_btn = self.page.locator("button", has_text="Connect").first
-                if await connect_btn.is_visible(timeout=2000):
-                    logger.info("connect_button_found_clicking")
-                    await connect_btn.click()
-                    await asyncio.sleep(2)
-            except Exception as e:
-                logger.debug("no_connect_button_found", error=str(e))
+            # Handle potential popups (Connect Workspace, Image Upload Disclaimer) before or while iframe loads
+            logger.debug("checking_for_popups_before_picker")
+            for _ in range(10):  # Up to 5 seconds
+                try:
+                    # Check Connect
+                    connect_btn = self.page.locator("gem-button[data-test-id='confirm-button'] button, button:has-text('Connect')").first
+                    if await connect_btn.is_visible():
+                        logger.info("connect_button_found_clicking")
+                        await connect_btn.click()
+                        await asyncio.sleep(1)
+                        
+                    # Check Agree
+                    agree_btn = self.page.locator("gem-button[data-test-id='upload-image-agree-button'] button, button:has-text('Agree')").first
+                    if await agree_btn.is_visible():
+                        logger.info("agree_button_found_clicking")
+                        await agree_btn.click()
+                        await asyncio.sleep(1)
+                        
+                    # If the iframe is visible, we are ready to proceed
+                    if await self.page.locator("div.google-picker iframe").first.is_visible():
+                        break
+                except Exception as e:
+                    logger.debug("error_checking_popups", error=str(e))
+                
+                await asyncio.sleep(0.5)
 
             # Switch to the Google Picker iframe
             iframe_selector = "div.google-picker iframe"
