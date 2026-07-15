@@ -83,6 +83,7 @@ class FeminiWatermarkRemover(WatermarkRemover):
         if force_size:
             configs_to_try.extend([
                 (force_size, None), # Standard margin
+                (force_size, 80),   # Fallback margin for 3:4 aspect ratio
                 (force_size, 96),   # Fallback margin (higher up/left)
             ])
         else:
@@ -92,8 +93,10 @@ class FeminiWatermarkRemover(WatermarkRemover):
             # Try default size first, then fallback size, both with standard and fallback margins
             configs_to_try.extend([
                 (default_size, None),
+                (default_size, 80),
                 (default_size, 96),
                 (other_size, None),
+                (other_size, 80),
                 (other_size, 96)
             ])
 
