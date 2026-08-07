@@ -19,8 +19,8 @@ class FeminiWatermarkRemover(WatermarkRemover):
 
     @staticmethod
     def get_watermark_size(image_width: int, image_height: int) -> WatermarkSize:
-        # Revert to original logic: LARGE is only when BOTH dimensions exceed 1024
-        if image_width > 1024 and image_height > 1024:
+        # Gemini uses LARGE if the longest edge is > 1024
+        if max(image_width, image_height) > 1024:
             return WatermarkSize.LARGE
         return WatermarkSize.SMALL
 
@@ -74,28 +74,37 @@ class FeminiWatermarkRemover(WatermarkRemover):
 
     def remove_watermark(self, image: np.ndarray,
                         force_size: Optional[WatermarkSize] = None,
+                        force_margin: Optional[int] = None,
                         alpha_map: Optional[np.ndarray] = None,
                         auto_detect: bool = True) -> np.ndarray:
+        if force_size and force_margin is not None:
+            self.current_margin = force_margin
+            return super().remove_watermark(image, force_size=force_size, alpha_map=alpha_map, auto_detect=False)
+
         if not auto_detect:
             return super().remove_watermark(image, force_size=force_size, alpha_map=alpha_map, auto_detect=False)
 
         configs_to_try = []
+        default_size = self.get_watermark_size(image.shape[1], image.shape[0])
+        
         if force_size:
             configs_to_try.extend([
                 (force_size, None), # Standard margin
+                (force_size, 64),   # Commonly seen in padded UI
                 (force_size, 80),   # Fallback margin for 3:4 aspect ratio
                 (force_size, 96),   # Fallback margin (higher up/left)
             ])
         else:
-            default_size = self.get_watermark_size(image.shape[1], image.shape[0])
             other_size = WatermarkSize.SMALL if default_size == WatermarkSize.LARGE else WatermarkSize.LARGE
             
             # Try default size first, then fallback size, both with standard and fallback margins
             configs_to_try.extend([
                 (default_size, None),
+                (default_size, 64),
                 (default_size, 80),
                 (default_size, 96),
                 (other_size, None),
+                (other_size, 64),
                 (other_size, 80),
                 (other_size, 96)
             ])
@@ -109,8 +118,8 @@ class FeminiWatermarkRemover(WatermarkRemover):
             # Try strict detection
             is_detected = self.detect_watermark(image, force_size=test_size)
             
-            # Accept if strict detection passes OR if template correlation is high enough
-            if is_detected or corr > 0.60:
+            # Accept if strict detection passes WITH decent correlation, OR if template correlation is very high
+            if (is_detected and corr > 0.40) or corr > 0.60:
                 valid_configs.append((corr, test_size, actual_margin))
 
         if valid_configs:
@@ -122,9 +131,10 @@ class FeminiWatermarkRemover(WatermarkRemover):
             print(f"Watermark detected: size={best_size.name}, margin={best_margin} (correlation: {best_corr:.2f})")
             return super().remove_watermark(image, force_size=best_size, alpha_map=alpha_map, auto_detect=False)
 
-        # Reset margin and return original image if all failed
-        self.current_margin = None
-        return image.copy()
+        # Smart fallback if detection completely fails (e.g., due to high-contrast boundary)
+        print(f"Standard detection failed (possible high-contrast boundary). Applying smart fallback: size={default_size.name}, margin={default_size.value[2]}")
+        self.current_margin = default_size.value[2]
+        return super().remove_watermark(image, force_size=default_size, alpha_map=alpha_map, auto_detect=False)
 
 def is_url(path: str) -> bool:
     """Check if the path is a URL."""
@@ -147,6 +157,7 @@ def process_image_custom(input_path: Union[str, Path],
                          output_path: Union[str, Path],
                          remove: bool = True,
                          force_size: Optional[WatermarkSize] = None,
+                         force_margin: Optional[int] = None,
                          logo_value: float = 255.0,
                          auto_detect: bool = True) -> bool:
     """
@@ -171,7 +182,7 @@ def process_image_custom(input_path: Union[str, Path],
         engine = FeminiWatermarkRemover(logo_value=logo_value)
 
         if remove:
-            result = engine.remove_watermark(image, force_size=force_size, auto_detect=auto_detect)
+            result = engine.remove_watermark(image, force_size=force_size, force_margin=force_margin, auto_detect=auto_detect)
         else:
             result = engine.add_watermark(image, force_size=force_size)
 
