@@ -448,7 +448,7 @@ class GeminiClient:
         logger.info("checking_model", target_model=target_model)
 
         try:
-            button_selector = "[data-test-id='bard-mode-menu-button']"
+            button_selector = "[data-test-id='bard-mode-menu-button'], [data-test-id='gem-mode-menu-button'], [data-test-id='gemini-mode-menu-button']"
             button = self.page.locator(button_selector).first
 
             if not await button.is_visible(timeout=5000):
