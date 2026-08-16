@@ -72,6 +72,18 @@ class FeminiWatermarkRemover(WatermarkRemover):
         # Use cv2.inpaint to fill the region based on surrounding pixels
         return cv2.inpaint(image_region, mask, 3, cv2.INPAINT_TELEA)
 
+    def _load_v2_mask(self) -> Optional[np.ndarray]:
+        if hasattr(self, '_v2_mask'):
+            return self._v2_mask
+        
+        mask_path = Path(__file__).parent / 'gemini_watermark_v2_24px.png'
+        if mask_path.exists():
+            mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+            if mask is not None:
+                self._v2_mask = (mask.astype(np.float32) / 255.0)
+                return self._v2_mask
+        return None
+
     def remove_watermark(self, image: np.ndarray,
                         force_size: Optional[WatermarkSize] = None,
                         force_margin: Optional[int] = None,
@@ -84,29 +96,47 @@ class FeminiWatermarkRemover(WatermarkRemover):
         if not auto_detect:
             return super().remove_watermark(image, force_size=force_size, alpha_map=alpha_map, auto_detect=False)
 
+        height, width = image.shape[:2]
+        
+        # --- NEW V2 WATERMARK CHECK ---
+        # The new Gemini watermark (August 2026) is exactly 24x24 
+        # typically positioned exactly 48px from bottom-right corner.
+        v2_mask = self._load_v2_mask()
+        v2_w, v2_h = 24, 24
+        if v2_mask is not None:
+            # Check margins 48 and 49 (sometimes padded slightly differently)
+            for test_margin in [48, 49]:
+                x = width - v2_w - test_margin
+                y = height - v2_h - test_margin
+                
+                if x >= 0 and y >= 0:
+                    roi = image[y:y+v2_h, x:x+v2_w]
+                    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
+                    try:
+                        corr = np.corrcoef(gray.flatten(), v2_mask.flatten())[0, 1]
+                        if not np.isnan(corr) and corr > 0.40:
+                            print(f"New V2 Watermark detected at ({x}, {y}) [margin {test_margin}] (correlation: {corr:.2f})")
+                            alpha_3ch = np.stack([v2_mask]*3, axis=-1)
+                            restored = (roi.astype(np.float32) - 255.0 * alpha_3ch) / np.clip(1.0 - alpha_3ch, 0.001, 1.0)
+                            result = image.copy()
+                            result[y:y+v2_h, x:x+v2_w] = np.clip(restored, 0, 255).astype(np.uint8)
+                            return result
+                    except Exception:
+                        pass
+
+        # --- OLD WATERMARK CHECK FALLBACK ---
         configs_to_try = []
-        default_size = self.get_watermark_size(image.shape[1], image.shape[0])
+        default_size = self.get_watermark_size(width, height)
         
         if force_size:
             configs_to_try.extend([
-                (force_size, None), # Standard margin
-                (force_size, 64),   # Commonly seen in padded UI
-                (force_size, 80),   # Fallback margin for 3:4 aspect ratio
-                (force_size, 96),   # Fallback margin (higher up/left)
+                (force_size, None), (force_size, 64), (force_size, 80), (force_size, 96),
             ])
         else:
             other_size = WatermarkSize.SMALL if default_size == WatermarkSize.LARGE else WatermarkSize.LARGE
-            
-            # Try default size first, then fallback size, both with standard and fallback margins
             configs_to_try.extend([
-                (default_size, None),
-                (default_size, 64),
-                (default_size, 80),
-                (default_size, 96),
-                (other_size, None),
-                (other_size, 64),
-                (other_size, 80),
-                (other_size, 96)
+                (default_size, None), (default_size, 64), (default_size, 80), (default_size, 96),
+                (other_size, None), (other_size, 64), (other_size, 80), (other_size, 96)
             ])
 
         valid_configs = []
@@ -114,25 +144,32 @@ class FeminiWatermarkRemover(WatermarkRemover):
             self.current_margin = test_margin
             actual_margin = test_margin if test_margin is not None else test_size.value[2]
             corr = self.get_correlation_score(image, test_size, actual_margin)
-            
-            # Try strict detection
             is_detected = self.detect_watermark(image, force_size=test_size)
             
-            # Accept if strict detection passes WITH decent correlation, OR if template correlation is very high
             if (is_detected and corr > 0.40) or corr > 0.60:
                 valid_configs.append((corr, test_size, actual_margin))
 
         if valid_configs:
-            # Sort by highest correlation to tie-break false positives
             valid_configs.sort(reverse=True, key=lambda x: x[0])
             best_corr, best_size, best_margin = valid_configs[0]
-            
             self.current_margin = best_margin
-            print(f"Watermark detected: size={best_size.name}, margin={best_margin} (correlation: {best_corr:.2f})")
+            print(f"Legacy Watermark detected: size={best_size.name}, margin={best_margin} (correlation: {best_corr:.2f})")
             return super().remove_watermark(image, force_size=best_size, alpha_map=alpha_map, auto_detect=False)
 
-        # Smart fallback if detection completely fails (e.g., due to high-contrast boundary)
-        print(f"Standard detection failed (possible high-contrast boundary). Applying smart fallback: size={default_size.name}, margin={default_size.value[2]}")
+        # Smart fallback if all detection completely fails (e.g., due to high-contrast boundary)
+        print("Standard detection failed (possible high-contrast boundary). Applying V2 smart fallback at margin=48.")
+        if v2_mask is not None:
+            x = width - v2_w - 48
+            y = height - v2_h - 48
+            if x >= 0 and y >= 0:
+                roi = image[y:y+v2_h, x:x+v2_w]
+                alpha_3ch = np.stack([v2_mask]*3, axis=-1)
+                restored = (roi.astype(np.float32) - 255.0 * alpha_3ch) / np.clip(1.0 - alpha_3ch, 0.001, 1.0)
+                result = image.copy()
+                result[y:y+v2_h, x:x+v2_w] = np.clip(restored, 0, 255).astype(np.uint8)
+                return result
+
+        # Ultimate fallback to old library logic
         self.current_margin = default_size.value[2]
         return super().remove_watermark(image, force_size=default_size, alpha_map=alpha_map, auto_detect=False)
 
