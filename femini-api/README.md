@@ -53,7 +53,12 @@ Content-Type: application/json
   "return_image_data": false,
   "download": true,
   "filename_suffix": "_suffix",
-  "save_dir": "custom_folder"
+  "save_dir": "custom_folder",
+  "credential_key": "account1",
+  "credential_mode": "random",
+  "gemini_model": "Flash",
+  "required_json_keys": ["data"],
+  "retry": true
 }
 ```
 
@@ -218,14 +223,14 @@ eventSource.onmessage = (event) => {
 Copy `.env.example` to `.env` and configure:
 
 ```bash
-# API Settings
+# API Server Settings
 API_HOST=0.0.0.0
-API_PORT=8000
+API_PORT=12000
 
-# Logging
-LOG_LEVEL=INFO
+# Database Settings
+DATABASE_PATH=data/femini_api.db
 
-# Google credentials for the Playwright worker.
+# Google Gemini Credentials
 # The Playwright engine expects GEMINI_CREDENTIALS as a JSON array string.
 # Example (single-line JSON string in .env):
 GEMINI_CREDENTIALS='[
@@ -233,11 +238,47 @@ GEMINI_CREDENTIALS='[
   {"email":"user2@gmail.com","password":"pass2","key":"account2"}
 ]'
 
-# Worker Settings
-CREDENTIAL_MODE=random
+# Credential Management
+CREDENTIAL_MODE=default
+DEFAULT_CREDENTIAL_INDEX=0
+
+# Concurrency Settings
+MAX_CONCURRENT_PER_CREDENTIAL=1
+MAX_TOTAL_CONCURRENT=10
+WORKER_TASK_TIMEOUT=400
+
+# Browser Settings
 HEADLESS=true
-SAVE_RESPONSES=false # Set to false for strictly opt-in downloads
-REMOVE_WATERMARK=true
+SLOW_MO=0
+REQUEST_TIMEOUT=180
+BROWSER_CONTEXT_TIMEOUT=300
+MAX_REQUESTS_PER_CONTEXT=50
+
+# Directory Paths
+USER_DATA_BASE_DIR=/app/user_data
+COOKIES_BASE_DIR=/app/cookies
+DOWNLOAD_DIR=/app/downloads
+LOG_DIR=/app/logs
+
+# Gemini Settings
+BASE_URL=https://gemini.google.com/app?hl=en-IN
+MAX_TIMEOUT=180
+TIMEOUT=60
+IMAGE_GENERATION_TIMEOUT=600
+MAX_RETRIES=6
+GEMINI_MODEL=Flash
+
+# Response Settings
+SAVE_RESPONSES=false      # Set to false for strictly opt-in downloads
+NEW_CHAT_PER_REQUEST=false
+RETURN_IMAGE_DATA=false
+REMOVE_WATERMARK=true     # Automatically remove watermark from images
+
+# Logging
+LOG_LEVEL=INFO
+
+# Python Path
+PYTHONPATH=/app
 ```
 
 Notes:
@@ -263,8 +304,8 @@ curl http://localhost:12000/api/v1/health
 services:
   femini-api:
     environment:
-      - API_PORT=8000
-      - CREDENTIALS=[...]
+      - API_PORT=12000
+      - GEMINI_CREDENTIALS=[...]
       - LOG_LEVEL=INFO
 ```
 

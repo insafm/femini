@@ -40,6 +40,13 @@ Femini provides a production-ready, high-performance REST API that automates the
 - `run_local.sh`: Helper script for running the system locally without Docker.
 - `docker-compose.yml`: Ready-to-use container orchestration.
 
+**Runtime Directories (Created automatically):**
+- `data/`: SQLite database storage.
+- `downloads/`: Saved generated images and text responses.
+- `logs/`: Application logs.
+- `cookies/`: Persisted Playwright browser state.
+- `user_data/`: Chrome user data directory.
+
 ## 🚀 Quick Start
 
 ### 1. Prerequisites

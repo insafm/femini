@@ -77,15 +77,31 @@ GEMINI_CREDENTIALS='[
   }
 ]'
 
-# Credential selection: random, round_robin, default, least_busy
-CREDENTIAL_MODE=random
+# Credential Management
+- Credential selection: random, round_robin, default, least_busy
 
-# Concurrency (should match credential count)
+CREDENTIAL_MODE=default
+DEFAULT_CREDENTIAL_INDEX=0
+
+# Concurrency Settings
 MAX_CONCURRENT_PER_CREDENTIAL=1
-MAX_TOTAL_CONCURRENT=2
+MAX_TOTAL_CONCURRENT=10
+WORKER_TASK_TIMEOUT=400
 
-# Other settings...
+# Browser Settings
 HEADLESS=true
+SLOW_MO=0
+REQUEST_TIMEOUT=180
+BROWSER_CONTEXT_TIMEOUT=300
+MAX_REQUESTS_PER_CONTEXT=50
+
+# Response Settings
+SAVE_RESPONSES=false
+NEW_CHAT_PER_REQUEST=false
+RETURN_IMAGE_DATA=false
+REMOVE_WATERMARK=true
+
+# Logging
 LOG_LEVEL=INFO
 ```
 
@@ -261,11 +277,17 @@ class Request:
     reference_image_name: Optional[str] = None
     chat_id: Optional[str] = None
     account_id: Optional[str] = None
+    credential_key: Optional[str] = None
+    credential_mode: Optional[str] = None
+    gemini_model: Optional[str] = None
     return_image_data: bool = False
     filename_suffix: str = ""
     save_dir: Optional[str] = None
     download: bool = False
     metadata: Optional[Dict[str, Any]] = None
+    required_json_keys: Optional[List[str]] = None
+    retry_count: int = 0
+    retry: bool = True
 ```
 
 ### TaskResult

@@ -132,6 +132,22 @@ curl -X POST http://localhost:12000/api/v1/submit \
   }'
 ```
 
+#### Advanced Request with All Parameters
+```bash
+curl -X POST http://localhost:12000/api/v1/submit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Explain quantum mechanics in a JSON array of 3 key concepts.",
+    "is_image": false,
+    "force_json": true,
+    "required_json_keys": ["concepts"],
+    "credential_key": "account2",
+    "credential_mode": "default",
+    "gemini_model": "Flash",
+    "retry": true
+  }'
+```
+
 #### Conditional Downloads & Custom Paths
 By default, files are not saved unless explicitly requested via `"download": true`.
 
