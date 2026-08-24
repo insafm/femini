@@ -98,29 +98,27 @@ class FeminiWatermarkRemover(WatermarkRemover):
 
         height, width = image.shape[:2]
         
+        # We will collect all matches here to find the absolute best if strict detection fails
+        all_configs = []
+        valid_configs = []
+
         # --- NEW V2 WATERMARK CHECK ---
-        # The new Gemini watermark (August 2026) is exactly 24x24 
-        # typically positioned exactly 48px from bottom-right corner.
         v2_mask = self._load_v2_mask()
         v2_w, v2_h = 24, 24
         if v2_mask is not None:
-            # Check margins 48 and 49 (sometimes padded slightly differently)
+            # Check margins 48 and 49
             for test_margin in [48, 49]:
                 x = width - v2_w - test_margin
                 y = height - v2_h - test_margin
-                
                 if x >= 0 and y >= 0:
                     roi = image[y:y+v2_h, x:x+v2_w]
                     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
                     try:
                         corr = np.corrcoef(gray.flatten(), v2_mask.flatten())[0, 1]
-                        if not np.isnan(corr) and corr > 0.40:
-                            print(f"New V2 Watermark detected at ({x}, {y}) [margin {test_margin}] (correlation: {corr:.2f})")
-                            alpha_3ch = np.stack([v2_mask]*3, axis=-1)
-                            restored = (roi.astype(np.float32) - 255.0 * alpha_3ch) / np.clip(1.0 - alpha_3ch, 0.001, 1.0)
-                            result = image.copy()
-                            result[y:y+v2_h, x:x+v2_w] = np.clip(restored, 0, 255).astype(np.uint8)
-                            return result
+                        if not np.isnan(corr):
+                            all_configs.append((corr, 'V2', test_margin, x, y))
+                            if corr > 0.40:
+                                valid_configs.append((corr, 'V2', test_margin, x, y))
                     except Exception:
                         pass
 
@@ -139,39 +137,45 @@ class FeminiWatermarkRemover(WatermarkRemover):
                 (other_size, None), (other_size, 64), (other_size, 80), (other_size, 96)
             ])
 
-        valid_configs = []
         for test_size, test_margin in configs_to_try:
             self.current_margin = test_margin
             actual_margin = test_margin if test_margin is not None else test_size.value[2]
             corr = self.get_correlation_score(image, test_size, actual_margin)
             is_detected = self.detect_watermark(image, force_size=test_size)
             
-            if (is_detected and corr > 0.40) or corr > 0.60:
-                valid_configs.append((corr, test_size, actual_margin))
+            if not np.isnan(corr):
+                all_configs.append((corr, test_size, actual_margin, None, None))
+                if (is_detected and corr > 0.40) or corr > 0.60:
+                    valid_configs.append((corr, test_size, actual_margin, None, None))
 
-        if valid_configs:
-            valid_configs.sort(reverse=True, key=lambda x: x[0])
-            best_corr, best_size, best_margin = valid_configs[0]
-            self.current_margin = best_margin
-            print(f"Legacy Watermark detected: size={best_size.name}, margin={best_margin} (correlation: {best_corr:.2f})")
-            return super().remove_watermark(image, force_size=best_size, alpha_map=alpha_map, auto_detect=False)
-
-        # Smart fallback if all detection completely fails (e.g., due to high-contrast boundary)
-        print("Standard detection failed (possible high-contrast boundary). Applying V2 smart fallback at margin=48.")
-        if v2_mask is not None:
-            x = width - v2_w - 48
-            y = height - v2_h - 48
-            if x >= 0 and y >= 0:
-                roi = image[y:y+v2_h, x:x+v2_w]
+        # Helper function to apply a configuration
+        def apply_config(best_corr, best_size, best_margin, bx, by, is_fallback=False):
+            if best_size == 'V2':
+                prefix = "Standard detection failed." if is_fallback else "New V2 Watermark detected"
+                print(f"{prefix} Applying V2 at ({bx}, {by}) [margin {best_margin}] (correlation: {best_corr:.2f})")
+                roi = image[by:by+v2_h, bx:bx+v2_w]
                 alpha_3ch = np.stack([v2_mask]*3, axis=-1)
                 restored = (roi.astype(np.float32) - 255.0 * alpha_3ch) / np.clip(1.0 - alpha_3ch, 0.001, 1.0)
                 result = image.copy()
-                result[y:y+v2_h, x:x+v2_w] = np.clip(restored, 0, 255).astype(np.uint8)
+                result[by:by+v2_h, bx:bx+v2_w] = np.clip(restored, 0, 255).astype(np.uint8)
                 return result
+            else:
+                self.current_margin = best_margin
+                prefix = "Standard detection failed." if is_fallback else "Legacy Watermark detected:"
+                print(f"{prefix} Applying legacy size={best_size.name}, margin={best_margin} (correlation: {best_corr:.2f})")
+                return super(FeminiWatermarkRemover, self).remove_watermark(image, force_size=best_size, alpha_map=alpha_map, auto_detect=False)
 
-        # Ultimate fallback to old library logic
-        self.current_margin = default_size.value[2]
-        return super().remove_watermark(image, force_size=default_size, alpha_map=alpha_map, auto_detect=False)
+        # 1. Try to apply the best valid configuration
+        if valid_configs:
+            valid_configs.sort(reverse=True, key=lambda x: x[0])
+            return apply_config(*valid_configs[0], is_fallback=False)
+            
+        # 2. Smart fallback: if strict detection failed, apply the config that had the absolute highest correlation
+        if all_configs:
+            all_configs.sort(reverse=True, key=lambda x: x[0])
+            return apply_config(*all_configs[0], is_fallback=True)
+
+        return image
 
 def is_url(path: str) -> bool:
     """Check if the path is a URL."""
