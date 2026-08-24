@@ -102,6 +102,12 @@ class FeminiWatermarkRemover(WatermarkRemover):
         all_configs = []
         valid_configs = []
 
+        def get_laplacian_corr(roi_img, mask_img):
+            gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            lap_img = cv2.Laplacian(gray, cv2.CV_32F)
+            lap_mask = cv2.Laplacian(mask_img.astype(np.float32), cv2.CV_32F)
+            return np.corrcoef(lap_img.flatten(), lap_mask.flatten())[0, 1]
+
         # --- NEW V2 WATERMARK CHECK ---
         v2_mask = self._load_v2_mask()
         v2_w, v2_h = 24, 24
@@ -112,9 +118,8 @@ class FeminiWatermarkRemover(WatermarkRemover):
                 y = height - v2_h - test_margin
                 if x >= 0 and y >= 0:
                     roi = image[y:y+v2_h, x:x+v2_w]
-                    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
                     try:
-                        corr = np.corrcoef(gray.flatten(), v2_mask.flatten())[0, 1]
+                        corr = get_laplacian_corr(roi, v2_mask)
                         if not np.isnan(corr):
                             all_configs.append((corr, 'V2', test_margin, x, y))
                             if corr > 0.40:
@@ -138,15 +143,24 @@ class FeminiWatermarkRemover(WatermarkRemover):
             ])
 
         for test_size, test_margin in configs_to_try:
-            self.current_margin = test_margin
             actual_margin = test_margin if test_margin is not None else test_size.value[2]
-            corr = self.get_correlation_score(image, test_size, actual_margin)
-            is_detected = self.detect_watermark(image, force_size=test_size)
+            sw, sh, _ = test_size.value
+            x = width - sw - actual_margin
+            y = height - sh - actual_margin
             
-            if not np.isnan(corr):
-                all_configs.append((corr, test_size, actual_margin, None, None))
-                if (is_detected and corr > 0.40) or corr > 0.60:
-                    valid_configs.append((corr, test_size, actual_margin, None, None))
+            if x >= 0 and y >= 0:
+                roi = image[y:y+sh, x:x+sw]
+                alpha_map = self.alpha_map_small if test_size == WatermarkSize.SMALL else self.alpha_map_large
+                alpha_norm = alpha_map * 255.0
+                
+                try:
+                    corr = get_laplacian_corr(roi, alpha_norm)
+                    if not np.isnan(corr):
+                        all_configs.append((corr, test_size, actual_margin, None, None))
+                        if corr > 0.40:
+                            valid_configs.append((corr, test_size, actual_margin, None, None))
+                except Exception:
+                    pass
 
         # Helper function to apply a configuration
         def apply_config(best_corr, best_size, best_margin, bx, by, is_fallback=False):
