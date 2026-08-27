@@ -63,7 +63,8 @@ async def image_generation_example():
         image_request = Request(
             prompt="Generate a beautiful sunset over mountains",
             is_image=True,
-            reference_image_name=None  # No reference image
+            reference_image_name=None,  # Optional: Use image from Google Drive
+            # reference_image_path="/path/to/image.png", # Alternative: Use local image path
         )
 
         print("📤 Submitting image generation request...")

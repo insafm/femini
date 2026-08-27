@@ -19,6 +19,7 @@ class Request:
     force_json: bool = False
     force_text: bool = False
     reference_image_name: Optional[str] = None
+    reference_image_path: Optional[str] = None
     chat_id: Optional[str] = None
     account_id: Optional[str] = None
     credential_key: Optional[str] = None

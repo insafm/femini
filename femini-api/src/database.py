@@ -43,6 +43,7 @@ class APIDatabase:
                 chat_id TEXT,
                 account_id TEXT,
                 reference_image_name TEXT,
+                reference_image_path TEXT,
                 created_at TIMESTAMP NOT NULL,
                 updated_at TIMESTAMP NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -77,6 +78,11 @@ class APIDatabase:
             logger.info("adding_column_download")
             await self.db.execute("ALTER TABLE api_requests ADD COLUMN download BOOLEAN NOT NULL DEFAULT 0")
             
+        # Add reference_image_path if missing
+        if 'reference_image_path' not in existing_columns:
+            logger.info("adding_column_reference_image_path")
+            await self.db.execute("ALTER TABLE api_requests ADD COLUMN reference_image_path TEXT")
+            
         # Create indexes for better query performance
         await self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_api_requests_status 
@@ -101,6 +107,7 @@ class APIDatabase:
         chat_id: Optional[str] = None,
         account_id: Optional[str] = None,
         reference_image_name: Optional[str] = None,
+        reference_image_path: Optional[str] = None,
         credential_key: Optional[str] = None,
         filename_suffix: str = "",
         save_dir: Optional[str] = None,
@@ -113,13 +120,13 @@ class APIDatabase:
             INSERT INTO api_requests (
                 task_id, prompt, is_image, force_json, force_text, 
                 return_image_data, chat_id, account_id, 
-                reference_image_name, credential_key, created_at, updated_at, status,
+                reference_image_name, reference_image_path, credential_key, created_at, updated_at, status,
                 filename_suffix, save_dir, download
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             task_id, prompt, is_image, force_json, force_text,
             return_image_data, chat_id, account_id,
-            reference_image_name, credential_key, now, now, 'pending',
+            reference_image_name, reference_image_path, credential_key, now, now, 'pending',
             filename_suffix, save_dir, download
         ))
         

@@ -34,6 +34,7 @@ class GeminiClient:
         self.generated_images: List[str] = []
         self.is_image = False
         self.reference_starred_drive_image_name: Optional[str] = None
+        self.reference_image_path: Optional[str] = None
         self.force_json = False
         self.force_text = False
         self.enable_paste_with_js = True
@@ -951,7 +952,7 @@ class GeminiClient:
                                 await self._recover_from_page_error()
                                 await asyncio.sleep(3)
                                 # Re-arm image mode and resend
-                                await self.set_as_image(True, self.reference_starred_drive_image_name)
+                                await self.set_as_image(True, self.reference_starred_drive_image_name, self.reference_image_path)
                                 retry_old_count = await self.send_prompt(self.last_prompt)
                                 return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
                             try:
@@ -1012,7 +1013,7 @@ class GeminiClient:
                                                    max_retries=self.settings.max_retries)
                                         self.generation_in_progress = False
                                         await asyncio.sleep(5)
-                                        await self.set_as_image(True, self.reference_starred_drive_image_name)
+                                        await self.set_as_image(True, self.reference_starred_drive_image_name, self.reference_image_path)
                                         retry_old_count = await self.send_prompt(self.last_prompt)
                                         return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
                                     
@@ -1031,7 +1032,7 @@ class GeminiClient:
                            attempt=retry_count + 1,
                            max_retries=self.settings.max_retries)
                 await asyncio.sleep(5)
-                await self.set_as_image(True, self.reference_starred_drive_image_name)
+                await self.set_as_image(True, self.reference_starred_drive_image_name, self.reference_image_path)
                 retry_old_count = await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
 
@@ -1049,7 +1050,7 @@ class GeminiClient:
                            max_retries=self.settings.max_retries)
                 # Don't load new chat for image retry - stay in same chat
                 await asyncio.sleep(5)
-                await self.set_as_image(True, self.reference_starred_drive_image_name)
+                await self.set_as_image(True, self.reference_starred_drive_image_name, self.reference_image_path)
                 retry_old_count = await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
 
@@ -1068,7 +1069,7 @@ class GeminiClient:
                            max_retries=self.settings.max_retries)
                 # Don't load new chat for image retry - stay in same chat
                 await asyncio.sleep(5)
-                await self.set_as_image(True, self.reference_starred_drive_image_name)
+                await self.set_as_image(True, self.reference_starred_drive_image_name, self.reference_image_path)
                 retry_old_count = await self.send_prompt(self.last_prompt)
                 return await self.get_image_response(old_count=retry_old_count, retry_count=retry_count + 1)
 
@@ -1079,12 +1080,26 @@ class GeminiClient:
             self.generation_in_progress = False
             self.is_last_response_image = True
 
-    async def set_as_image(self, enable: bool = True, reference_starred_drive_image_name: Optional[str] = None):
+    async def set_as_image(self, enable: bool = True, reference_starred_drive_image_name: Optional[str] = None, reference_image_path: Optional[str] = None):
         """Set the input mode to image or text"""
         await self.wait_for_completion()
         self.is_image = enable
 
-        if enable and reference_starred_drive_image_name:
+        if enable and reference_image_path:
+            self.reference_image_path = reference_image_path
+            logger.info("uploading_image_from_path", path=reference_image_path)
+            
+            try:
+                uploader_btn = self.page.locator("button[aria-label='Upload and tools'], uploader").first
+                await uploader_btn.click()
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning("failed_to_click_uploader_btn", error=str(e))
+                
+            file_input = self.page.locator('input.hidden-file-input[type="file"], input[type="file"]').first
+            await file_input.set_input_files(reference_image_path)
+            await asyncio.sleep(2)
+        elif enable and reference_starred_drive_image_name:
             self.reference_starred_drive_image_name = reference_starred_drive_image_name
 
             # Add retry with page reload if uploader-drive-button times out
@@ -1479,7 +1494,7 @@ class GeminiClient:
 
             # Handle image mode
             if request.is_image:
-                await self.set_as_image(True, request.reference_image_name)
+                await self.set_as_image(True, request.reference_image_name, request.reference_image_path)
             elif self.is_last_response_image:
                 logger.info("deselecting_as_image")
                 await self.deselect_as_image()

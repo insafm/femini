@@ -147,7 +147,8 @@ asyncio.run(main())
 request = Request(
     prompt="Generate a beautiful sunset",
     is_image=True,
-    reference_image_name=None  # Optional reference image
+    reference_image_name=None,  # Optional: Use image from Google Drive
+    # reference_image_path="/path/to/image.png", # Alternative: Use local image path
 )
 
 task_id = await app.submit_request(request)
@@ -275,6 +276,7 @@ class Request:
     force_json: bool = False
     force_text: bool = False
     reference_image_name: Optional[str] = None
+    reference_image_path: Optional[str] = None
     chat_id: Optional[str] = None
     account_id: Optional[str] = None
     credential_key: Optional[str] = None

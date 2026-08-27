@@ -18,6 +18,7 @@ class SubmitRequest(BaseModel):
     credential_mode: Optional[str] = Field(None, description="Override credential selection mode")
     gemini_model: Optional[str] = Field(None, description="Gemini model to use for this request")
     reference_image_name: Optional[str] = Field(None, description="Reference image from Google Drive")
+    reference_image_path: Optional[str] = Field(None, description="Local path to reference image")
     filename_suffix: str = Field("", description="Suffix for saved filenames")
     save_dir: Optional[str] = Field(None, description="Custom directory to save downloads")
     download: bool = Field(False, description="Whether to save the response to a file (image or text)")

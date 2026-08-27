@@ -120,7 +120,7 @@ curl -X POST http://localhost:12000/api/v1/submit \
   }'
 ```
 
-#### Request with Reference Image
+#### Request with Reference Image (From Google Drive)
 ```bash
 curl -X POST http://localhost:12000/api/v1/submit \
   -H "Content-Type: application/json" \
@@ -129,6 +129,18 @@ curl -X POST http://localhost:12000/api/v1/submit \
     "is_image": true,
     "return_image_data": true,
     "reference_image_name": "my-reference-image.jpg"
+  }'
+```
+
+#### Request with Reference Image (From Local Path)
+```bash
+curl -X POST http://localhost:12000/api/v1/submit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Modify this image to be in black and white",
+    "is_image": true,
+    "return_image_data": true,
+    "reference_image_path": "/absolute/path/to/local/image.png"
   }'
 ```
 
